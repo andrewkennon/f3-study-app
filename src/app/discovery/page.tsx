@@ -63,6 +63,34 @@ export default function DiscoveryPage() {
 
     if (!error) {
       setUserMemberships((prev) => ({ ...prev, [groupId]: 'pending' }));
+
+      // Fetch Group details and Q profile to fire email notification
+      const { data: group } = await supabase
+        .from('groups')
+        .select('name, q_id, profiles!q_id(email, f3_name)')
+        .eq('id', groupId)
+        .single();
+
+      const { data: paxProfile } = await supabase
+        .from('profiles')
+        .select('f3_name, real_name')
+        .eq('id', user.id)
+        .single();
+
+      const qEmail = (group as any)?.profiles?.email;
+      const paxName = paxProfile?.f3_name || paxProfile?.real_name || 'A Pax';
+
+      if (qEmail) {
+        await fetch('/api/notify-q', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            qEmail,
+            groupName: group?.name || 'Study Group',
+            paxName,
+          }),
+        });
+      }
     }
   };
 
