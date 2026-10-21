@@ -1,11 +1,12 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { User, Shield, LogOut } from 'lucide-react';
+import { User, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function ProfilePage() {
-  const router = Router = useRouter();
+  const router = useRouter();
   const [profile, setProfile] = useState<{ f3_name?: string; real_name?: string; email?: string }>({});
   const [loading, setLoading] = useState(true);
 
@@ -37,7 +38,11 @@ export default function ProfilePage() {
   };
 
   if (loading) {
-    return <main className="max-w-md mx-auto p-4 text-center text-xs font-bold text-gray-400 py-12">Loading Profile...</main>;
+    return (
+      <main className="max-w-md mx-auto p-4 text-center text-xs font-bold text-gray-400 py-12">
+        Loading Profile...
+      </main>
+    );
   }
 
   return (
