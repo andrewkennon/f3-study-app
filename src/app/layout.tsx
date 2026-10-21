@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import BottomNav from "@/components/BottomNav";
+import AuthGuard from "@/components/AuthGuard";
 
 export const metadata: Metadata = {
   title: "F3 Bible Study",
@@ -21,10 +22,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-gray-50 text-gray-900 antialiased selection:bg-black selection:text-white">
-        <div className="min-h-screen pb-16">
-          {children}
-        </div>
-        <BottomNav />
+        <AuthGuard>
+          <div className="min-h-screen pb-16">
+            {children}
+          </div>
+          <BottomNav />
+        </AuthGuard>
       </body>
     </html>
   );
