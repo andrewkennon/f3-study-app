@@ -20,12 +20,13 @@ export default function DailyStudyPage({ searchParams }: PageProps) {
   const [optionalDeepDive, setOptionalDeepDive] = useState('');
   const [isCompleted, setIsCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [statusMessage, setStatusMessage] = useState('');
 
   useEffect(() => {
     async function loadDayData() {
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Fetch study reading content
+      // 1. Fetch study reading content from daily_readings
       const { data: reading } = await supabase
         .from('daily_readings')
         .select('*')
@@ -43,17 +44,32 @@ export default function DailyStudyPage({ searchParams }: PageProps) {
         setScriptureHtml(html);
       }
 
-      // Check if current user already completed this day
-      if (user && groupId) {
-        const { data: doneRecord } = await supabase
-          .from('accountability')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('group_id', groupId)
-          .eq('day_number', currentDay)
-          .single();
+      // 2. Check if user already marked this day done
+      if (user) {
+        // Fallback: If groupId wasn't passed in URL, look up user's active group
+        let activeGroupId = groupId;
+        if (!activeGroupId) {
+          const { data: member } = await supabase
+            .from('group_members')
+            .select('group_id')
+            .eq('user_id', user.id)
+            .eq('status', 'approved')
+            .limit(1)
+            .single();
+          if (member) activeGroupId = member.group_id;
+        }
 
-        if (doneRecord) setIsCompleted(true);
+        if (activeGroupId) {
+          const { data: doneRecord } = await supabase
+            .from('accountability')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('group_id', activeGroupId)
+            .eq('day_number', currentDay)
+            .single();
+
+          if (doneRecord) setIsCompleted(true);
+        }
       }
       setLoading(false);
     }
@@ -62,15 +78,42 @@ export default function DailyStudyPage({ searchParams }: PageProps) {
   }, [currentDay, groupId]);
 
   const handleMarkDone = async () => {
+    setStatusMessage('Saving completion...');
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !groupId) return;
 
-    const { error } = await supabase.from('accountability').insert([
-      { user_id: user.id, group_id: groupId, day_number: currentDay }
+    if (!user) {
+      setStatusMessage('Error: You must be logged in.');
+      return;
+    }
+
+    // Determine target group ID
+    let targetGroupId = groupId;
+    if (!targetGroupId) {
+      const { data: member } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', user.id)
+        .eq('status', 'approved')
+        .limit(1)
+        .single();
+
+      if (member) targetGroupId = member.group_id;
+    }
+
+    if (!targetGroupId) {
+      setStatusMessage('Error: No active group found. Join a group first!');
+      return;
+    }
+
+    const { error } = await supabase.from('accountability').upsert([
+      { user_id: user.id, group_id: targetGroupId, day_number: currentDay }
     ]);
 
-    if (!error) {
+    if (error) {
+      setStatusMessage(`Database Error: ${error.message}`);
+    } else {
       setIsCompleted(true);
+      setStatusMessage('Recorded! Check marked on Accountability Board.');
     }
   };
 
@@ -110,7 +153,7 @@ export default function DailyStudyPage({ searchParams }: PageProps) {
         These devotionals were created by AI. The best reference for the Bible is the Bible.
       </div>
 
-      {/* Done Button with State Lock */}
+      {/* Interactive DONE Button */}
       <button 
         type="button" 
         onClick={handleMarkDone}
@@ -124,6 +167,10 @@ export default function DailyStudyPage({ searchParams }: PageProps) {
         <CheckCircle size={24} />
         {isCompleted ? 'COMPLETED' : 'DONE'}
       </button>
+
+      {statusMessage && (
+        <p className="text-center text-xs font-bold text-blue-600 mt-3">{statusMessage}</p>
+      )}
 
       <div className="flex justify-between items-center pt-6 text-sm font-bold">
         {currentDay > 1 ? (
