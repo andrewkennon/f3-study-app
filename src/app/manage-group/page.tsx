@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { Shield, Check, X, ArrowLeft, Users, AlertCircle } from 'lucide-react';
+import { Shield, Check, X, ArrowLeft, Users, BookOpen, Save } from 'lucide-react';
 
 interface PendingMember {
   user_id: string;
@@ -15,16 +15,25 @@ interface PendingMember {
   real_name: string;
 }
 
+interface MasterStudy {
+  id: string;
+  title: string;
+  total_days: number;
+}
+
 function ManageGroupContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const targetGroupId = searchParams.get('groupId');
 
   const [pendingList, setPendingList] = useState<PendingMember[]>([]);
+  const [studies, setStudies] = useState<MasterStudy[]>([]);
+  const [selectedStudyId, setSelectedStudyId] = useState<string>('');
+  const [groupName, setGroupName] = useState('');
   const [loading, setLoading] = useState(true);
-  const [debugMsg, setDebugMsg] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
-  const fetchPendingRequests = async () => {
+  const fetchGroupAndRequests = async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -32,17 +41,42 @@ function ManageGroupContent() {
       return;
     }
 
-    // Fetch pending requests without querying non-existent 'id'
-    const { data, error } = await supabase
+    // 1. Fetch Master Studies Library
+    const { data: studiesData } = await supabase.from('master_studies').select('id, title, total_days');
+    if (studiesData) setStudies(studiesData);
+
+    // 2. Fetch Group Details
+    if (targetGroupId) {
+      const { data: groupData } = await supabase
+        .from('groups')
+        .select('name, active_study_id')
+        .eq('id', targetGroupId)
+        .single();
+
+      if (groupData) {
+        setGroupName(groupData.name);
+        if (groupData.active_study_id) {
+          setSelectedStudyId(groupData.active_study_id);
+        } else if (studiesData && studiesData.length > 0) {
+          setSelectedStudyId(studiesData[0].id);
+        }
+      }
+    }
+
+    // 3. Fetch Pending Join Requests
+    let query = supabase
       .from('group_members')
       .select('user_id, group_id, status, groups(name), profiles(f3_name, real_name)')
       .eq('status', 'pending');
 
-    if (error) {
-      setDebugMsg(`Query Error: ${error.message}`);
-    } else if (data) {
-      setDebugMsg(`Found ${data.length} total pending record(s) in database.`);
-      const formatted: PendingMember[] = data.map((item: any) => ({
+    if (targetGroupId) {
+      query = query.eq('group_id', targetGroupId);
+    }
+
+    const { data: pendingData } = await query;
+
+    if (pendingData) {
+      const formatted: PendingMember[] = pendingData.map((item: any) => ({
         user_id: item.user_id,
         group_id: item.group_id,
         group_name: item.groups?.name || 'Unknown Group',
@@ -50,22 +84,31 @@ function ManageGroupContent() {
         f3_name: item.profiles?.f3_name || 'Pax',
         real_name: item.profiles?.real_name || 'N/A',
       }));
-
-      if (targetGroupId) {
-        setPendingList(formatted.filter((f) => f.group_id === targetGroupId));
-      } else {
-        setPendingList(formatted);
-      }
+      setPendingList(formatted);
     }
+
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchPendingRequests();
+    fetchGroupAndRequests();
   }, [targetGroupId]);
 
+  const handleSaveStudyTrack = async () => {
+    if (!targetGroupId || !selectedStudyId) return;
+
+    const { error } = await supabase
+      .from('groups')
+      .update({ active_study_id: selectedStudyId })
+      .eq('id', targetGroupId);
+
+    if (!error) {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    }
+  };
+
   const handleDecision = async (groupId: string, userId: string, decision: 'approved' | 'rejected') => {
-    // Target row via composite key (group_id, user_id)
     const { error } = await supabase
       .from('group_members')
       .update({ status: decision })
@@ -87,14 +130,49 @@ function ManageGroupContent() {
         <Shield size={20} className="text-black" />
       </div>
 
-      {debugMsg && (
-        <div className="bg-gray-100 border border-gray-300 p-3 rounded text-xs font-bold text-gray-700 flex items-center gap-2">
-          <AlertCircle size={16} className="text-black shrink-0" />
-          <span>{debugMsg}</span>
+      {groupName && (
+        <div className="bg-black text-white p-3.5 rounded-lg text-xs font-bold flex items-center justify-between shadow-sm">
+          <span>Group: {groupName}</span>
+          <span className="bg-white/20 px-2 py-0.5 rounded text-[10px]">Q Leader</span>
         </div>
       )}
 
-      <div className="space-y-3">
+      {/* INTERACTIVE STUDY TRACK SELECTOR */}
+      {targetGroupId && (
+        <section className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3">
+          <h2 className="text-xs font-black uppercase text-gray-500 tracking-wider flex items-center gap-1.5">
+            <BookOpen size={14} className="text-black" /> Active Study Track
+          </h2>
+
+          <div className="space-y-2">
+            <select
+              value={selectedStudyId}
+              onChange={(e) => setSelectedStudyId(e.target.value)}
+              className="w-full border border-gray-300 rounded p-2.5 text-xs font-bold bg-white focus:ring-black focus:border-black"
+            >
+              {studies.length === 0 ? (
+                <option value="">Being HIM (14 Days)</option>
+              ) : (
+                studies.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title} ({s.total_days} Days)
+                  </option>
+                ))
+              )}
+            </select>
+
+            <button
+              onClick={handleSaveStudyTrack}
+              className="w-full bg-black text-white font-bold text-xs py-2 rounded flex items-center justify-center gap-1.5 active:bg-gray-800"
+            >
+              <Save size={14} /> {saveSuccess ? 'Track Updated!' : 'Update Active Study'}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {/* PENDING REQUESTS PANEL */}
+      <section className="space-y-3">
         <h2 className="text-xs font-black uppercase text-gray-400 tracking-wider flex items-center gap-1.5">
           <Users size={14} /> Pending Join Requests ({pendingList.length})
         </h2>
@@ -104,7 +182,7 @@ function ManageGroupContent() {
         ) : pendingList.length === 0 ? (
           <div className="bg-white p-6 rounded-lg border border-gray-200 text-center space-y-1">
             <p className="text-sm font-bold text-gray-800">No pending requests</p>
-            <p className="text-xs text-gray-400">No pending requests found for this group filter.</p>
+            <p className="text-xs text-gray-400">All join requests for this group have been processed.</p>
           </div>
         ) : (
           pendingList.map((req) => (
@@ -133,7 +211,7 @@ function ManageGroupContent() {
             </div>
           ))
         )}
-      </div>
+      </section>
     </main>
   );
 }

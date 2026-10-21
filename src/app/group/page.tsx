@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { Shield, Compass, Plus, ArrowRight } from 'lucide-react';
+import { Shield, Compass, Plus, ArrowRight, Settings } from 'lucide-react';
 
 interface ActiveGroup {
   id: string;
   name: string;
   region: string;
   ao: string;
+  pending_count?: number;
 }
 
 export default function GroupDashboardPage() {
@@ -21,6 +22,7 @@ export default function GroupDashboardPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // 1. Fetch groups where user is an approved member
       const { data: memberships } = await supabase
         .from('group_members')
         .select('group_id, groups(id, name, region, ao)')
@@ -28,10 +30,33 @@ export default function GroupDashboardPage() {
         .eq('status', 'approved');
 
       if (memberships) {
-        const groups = memberships
+        const groupsList: ActiveGroup[] = memberships
           .map((m: any) => m.groups)
           .filter(Boolean);
-        setActiveGroups(groups);
+
+        const groupIds = groupsList.map((g) => g.id);
+
+        // 2. Fetch counts for pending join requests across user's groups
+        if (groupIds.length > 0) {
+          const { data: pendingData } = await supabase
+            .from('group_members')
+            .select('group_id')
+            .in('group_id', groupIds)
+            .eq('status', 'pending');
+
+          if (pendingData) {
+            const counts: Record<string, number> = {};
+            pendingData.forEach((row: any) => {
+              counts[row.group_id] = (counts[row.group_id] || 0) + 1;
+            });
+
+            groupsList.forEach((g) => {
+              g.pending_count = counts[g.id] || 0;
+            });
+          }
+        }
+
+        setActiveGroups(groupsList);
       }
       setLoading(false);
     }
@@ -71,9 +96,21 @@ export default function GroupDashboardPage() {
                     {g.region || 'F3'} {g.ao && g.ao !== 'N/A' ? `• ${g.ao}` : ''}
                   </p>
                 </div>
-                <span className="bg-black text-white text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1">
-                  <Shield size={12} /> Active
-                </span>
+
+                <div className="flex items-center gap-2">
+                  {/* PENDING REQUESTS BADGE LINK */}
+                  {g.pending_count !== undefined && g.pending_count > 0 && (
+                    <Link
+                      href={`/manage-group?groupId=${g.id}`}
+                      className="relative bg-red-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full flex items-center gap-1 animate-pulse"
+                    >
+                      <Settings size={12} /> {g.pending_count} Pending
+                    </Link>
+                  )}
+                  <span className="bg-black text-white text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                    <Shield size={12} /> Active
+                  </span>
+                </div>
               </div>
 
               <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
