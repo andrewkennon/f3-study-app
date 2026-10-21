@@ -1,7 +1,8 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { MessageSquare, Send } from 'lucide-react';
+import { Send, MessageSquare } from 'lucide-react';
 
 interface Post {
   id: string;
@@ -12,9 +13,9 @@ interface Post {
 }
 
 export default function MumblechatterPage() {
+  const [activeTab, setActiveTab] = useState<'Prayer Requests' | 'Study Requests' | 'General'>('Prayer Requests');
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPost, setNewPost] = useState('');
-  const [category, setCategory] = useState('Prayer Request');
   const [loading, setLoading] = useState(true);
 
   const fetchPosts = async () => {
@@ -49,8 +50,8 @@ export default function MumblechatterPage() {
       {
         user_id: user.id,
         user_name: authorName,
-        category,
-        content: newPost,
+        category: activeTab,
+        content: newPost.trim(),
       },
     ]);
 
@@ -60,57 +61,86 @@ export default function MumblechatterPage() {
     }
   };
 
+  // Filter feed based on active tab selection
+  const filteredPosts = posts.filter((p) => {
+    if (activeTab === 'Prayer Requests') {
+      return p.category === 'Prayer Requests' || p.category === 'Prayer Request';
+    }
+    if (activeTab === 'Study Requests') {
+      return p.category === 'Study Requests' || p.category === 'Study Discussion';
+    }
+    return p.category === 'General' || (!p.category);
+  });
+
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      <h1 className="text-2xl font-black tracking-tight">PUBLIC MUMBLECHATTER</h1>
+      <h1 className="text-2xl font-black tracking-tight">MUMBLECHATTER</h1>
 
-      {/* Post Form */}
-      <form onSubmit={handlePost} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3">
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="w-full border border-gray-300 rounded p-2 text-xs font-bold"
+      {/* CATEGORY TOGGLE TABS */}
+      <div className="grid grid-cols-3 gap-1 bg-gray-200 p-1 rounded-lg text-center text-xs font-bold">
+        <button
+          onClick={() => setActiveTab('Prayer Requests')}
+          className={`py-2 rounded transition-all ${
+            activeTab === 'Prayer Requests' ? 'bg-white text-black shadow-sm' : 'text-gray-600'
+          }`}
         >
-          <option value="Prayer Request">Prayer Request</option>
-          <option value="Praise Report">Praise Report</option>
-          <option value="Study Discussion">Study Discussion</option>
-          <option value="General">General</option>
-        </select>
+          Prayer
+        </button>
+        <button
+          onClick={() => setActiveTab('Study Requests')}
+          className={`py-2 rounded transition-all ${
+            activeTab === 'Study Requests' ? 'bg-white text-black shadow-sm' : 'text-gray-600'
+          }`}
+        >
+          Study
+        </button>
+        <button
+          onClick={() => setActiveTab('General')}
+          className={`py-2 rounded transition-all ${
+            activeTab === 'General' ? 'bg-white text-black shadow-sm' : 'text-gray-600'
+          }`}
+        >
+          General
+        </button>
+      </div>
 
+      {/* COMPACT POST INPUT FORM */}
+      <form onSubmit={handlePost} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3">
         <textarea
           value={newPost}
           onChange={(e) => setNewPost(e.target.value)}
-          placeholder="Share a prayer request or message with the Pax..."
-          className="w-full p-3 border border-gray-300 rounded-lg text-sm h-24 focus:ring-black focus:border-black"
+          placeholder={`Post to ${activeTab}...`}
+          className="w-full p-3 border border-gray-300 rounded-lg text-xs h-20 focus:ring-black focus:border-black"
         />
 
         <button
           type="submit"
-          className="w-full bg-black text-white font-bold text-xs py-2.5 rounded flex items-center justify-center gap-2"
+          className="w-full bg-black text-white font-bold text-xs py-2.5 rounded flex items-center justify-center gap-2 active:bg-gray-800"
         >
-          <Send size={14} /> Post Message
+          <Send size={14} /> Post to {activeTab}
         </button>
       </form>
 
-      {/* Feed */}
+      {/* FILTERED FEED */}
       <div className="space-y-3">
         {loading ? (
-          <p className="text-center text-xs text-gray-400 font-bold uppercase py-8">Loading Messages...</p>
-        ) : posts.length === 0 ? (
-          <p className="text-center text-xs text-gray-400 py-8">No messages posted yet.</p>
+          <p className="text-center text-xs text-gray-400 font-bold uppercase py-8">Loading Feed...</p>
+        ) : filteredPosts.length === 0 ? (
+          <div className="bg-white p-6 rounded-lg border border-gray-200 text-center space-y-1">
+            <MessageSquare size={20} className="mx-auto text-gray-400 mb-1" />
+            <p className="text-xs font-bold text-gray-500">No posts under {activeTab} yet.</p>
+            <p className="text-[10px] text-gray-400">Be the first Pax to share a message above!</p>
+          </div>
         ) : (
-          posts.map((p) => (
+          filteredPosts.map((p) => (
             <div key={p.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-1.5">
               <div className="flex justify-between items-center">
-                <span className="font-black text-sm">{p.user_name}</span>
-                <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-0.5 rounded border border-gray-200">
-                  {p.category}
+                <span className="font-black text-sm text-gray-900">{p.user_name}</span>
+                <span className="text-[10px] text-gray-400 font-bold">
+                  {new Date(p.created_at).toLocaleDateString()}
                 </span>
               </div>
               <p className="text-xs text-gray-700 leading-normal">{p.content}</p>
-              <p className="text-[10px] text-gray-400 text-right">
-                {new Date(p.created_at).toLocaleDateString()}
-              </p>
             </div>
           ))
         )}

@@ -28,6 +28,7 @@ export default function DynamicGroupPage() {
   const [groupName, setGroupName] = useState('');
   const [region, setRegion] = useState('');
   const [ao, setAo] = useState('');
+  const [pendingCount, setPendingCount] = useState<number>(0);
   const [paxChecks, setPaxChecks] = useState<MemberCheck[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -35,88 +36,105 @@ export default function DynamicGroupPage() {
 
   useEffect(() => {
     async function initGroupData() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push('/login');
-        return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          router.push('/login');
+          return;
+        }
+
+        // 1. Verify Membership & Load Group Info
+        const { data: group } = await supabase
+          .from('groups')
+          .select('*')
+          .eq('id', groupId)
+          .single();
+
+        if (group) {
+          setGroupName(group.name || 'Group Study');
+          setRegion(group.region || 'F3');
+          setAo(group.ao || '');
+        }
+
+        const { data: member } = await supabase
+          .from('group_members')
+          .select('*')
+          .eq('group_id', groupId)
+          .eq('user_id', user.id)
+          .eq('status', 'approved')
+          .single();
+
+        if (!member) {
+          router.push('/discovery');
+          return;
+        }
+
+        setIsAuthorized(true);
+
+        // 2. Fetch Pending Join Requests Count Safely
+        try {
+          const { count } = await supabase
+            .from('group_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('group_id', groupId)
+            .eq('status', 'pending');
+
+          if (count !== null) setPendingCount(count);
+        } catch (err) {
+          console.warn('Could not fetch pending count:', err);
+        }
+
+        // 3. Fetch Group Members & Accountability Checks
+        const { data: members } = await supabase
+          .from('group_members')
+          .select('user_id, profiles(id, f3_name, real_name)')
+          .eq('group_id', groupId)
+          .eq('status', 'approved');
+
+        const memberUserIds = members ? members.map((m: any) => m.user_id) : [];
+
+        const { data: accountability } = await supabase
+          .from('accountability')
+          .select('user_id, day_number, group_id')
+          .or(`group_id.eq.${groupId},user_id.in.(${memberUserIds.join(',')})`);
+
+        if (members) {
+          const gridData = members.map((m: any) => {
+            const profile = m.profiles;
+            const name = profile?.f3_name || profile?.real_name || 'Pax';
+
+            const userCompletions = accountability
+              ? accountability
+                  .filter((a) => a.user_id === m.user_id)
+                  .map((a) => Number(a.day_number))
+              : [];
+
+            const checks = Array.from({ length: 14 }, (_, i) => userCompletions.includes(i + 1));
+
+            return {
+              f3Name: name,
+              checks,
+            };
+          });
+
+          setPaxChecks(gridData);
+        }
+
+        // 4. Fetch Discussion Feed
+        const { data: commentData } = await supabase
+          .from('group_comments')
+          .select('*')
+          .eq('group_id', groupId)
+          .order('created_at', { ascending: false });
+
+        if (commentData) {
+          setComments(commentData);
+        }
+      } catch (error) {
+        console.error('Error initializing group page:', error);
+      } finally {
+        setLoading(false);
       }
-
-      // 1. Verify Membership & Load Group Info
-      const { data: group } = await supabase
-        .from('groups')
-        .select('*')
-        .eq('id', groupId)
-        .single();
-
-      if (group) {
-        setGroupName(group.name || 'Group Study');
-        setRegion(group.region || 'F3');
-        setAo(group.ao || '');
-      }
-
-      const { data: member } = await supabase
-        .from('group_members')
-        .select('*')
-        .eq('group_id', groupId)
-        .eq('user_id', user.id)
-        .eq('status', 'approved')
-        .single();
-
-      if (!member) {
-        router.push('/discovery');
-        return;
-      }
-
-      setIsAuthorized(true);
-
-      // 2. Fetch Group Members & Accountability Checks (Full 14 Days)
-      const { data: members } = await supabase
-        .from('group_members')
-        .select('user_id, profiles(id, f3_name, real_name)')
-        .eq('group_id', groupId)
-        .eq('status', 'approved');
-
-      const memberUserIds = members ? members.map((m: any) => m.user_id) : [];
-
-      const { data: accountability } = await supabase
-        .from('accountability')
-        .select('user_id, day_number, group_id')
-        .or(`group_id.eq.${groupId},user_id.in.(${memberUserIds.join(',')})`);
-
-      if (members) {
-        const gridData = members.map((m: any) => {
-          const profile = m.profiles;
-          const name = profile?.f3_name || profile?.real_name || 'Pax';
-
-          const userCompletions = accountability
-            ? accountability
-                .filter((a) => a.user_id === m.user_id)
-                .map((a) => Number(a.day_number))
-            : [];
-
-          const checks = Array.from({ length: 14 }, (_, i) => userCompletions.includes(i + 1));
-
-          return {
-            f3Name: name,
-            checks,
-          };
-        });
-
-        setPaxChecks(gridData);
-      }
-
-      // 3. Fetch Discussion Feed
-      const { data: commentData } = await supabase
-        .from('group_comments')
-        .select('*')
-        .eq('group_id', groupId)
-        .order('created_at', { ascending: false });
-
-      if (commentData) {
-        setComments(commentData);
-      }
-
-      setLoading(false);
     }
 
     if (groupId) initGroupData();
@@ -171,7 +189,7 @@ export default function DynamicGroupPage() {
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      {/* HEADER SECTION */}
+      {/* HEADER SECTION WITH BADGE */}
       <div className="bg-black text-white p-5 rounded-lg shadow-sm space-y-3">
         <div className="flex justify-between items-start">
           <div>
@@ -182,9 +200,14 @@ export default function DynamicGroupPage() {
           </div>
           <Link
             href={`/manage-group?groupId=${groupId}`}
-            className="bg-white/10 text-white hover:bg-white hover:text-black border border-white/20 text-xs font-bold px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors"
+            className="relative bg-white/10 text-white hover:bg-white hover:text-black border border-white/20 text-xs font-bold px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors"
           >
             <Settings size={14} /> Manage
+            {pendingCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-black animate-pulse">
+                {pendingCount}
+              </span>
+            )}
           </Link>
         </div>
 

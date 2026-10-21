@@ -1,4 +1,5 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
@@ -33,7 +34,9 @@ export default function DiscoveryPage() {
 
         if (memberships) {
           const statusMap: Record<string, string> = {};
-          memberships.forEach((m) => { statusMap[m.group_id] = m.status; });
+          memberships.forEach((m: any) => {
+            statusMap[m.group_id] = m.status;
+          });
           setUserMemberships(statusMap);
         }
       }
@@ -47,19 +50,27 @@ export default function DiscoveryPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { error } = await supabase.from('group_members').insert([
-      { group_id: groupId, user_id: user.id, status: 'pending' }
-    ]);
+    const { error } = await supabase.from('group_members').upsert(
+      [
+        {
+          group_id: groupId,
+          user_id: user.id,
+          status: 'pending',
+        },
+      ],
+      { onConflict: 'group_id, user_id' }
+    );
 
     if (!error) {
       setUserMemberships((prev) => ({ ...prev, [groupId]: 'pending' }));
     }
   };
 
-  const filteredGroups = groups.filter((g) =>
-    g.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    g.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    g.ao.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredGroups = groups.filter(
+    (g) =>
+      g.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      g.region?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      g.ao?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -71,7 +82,6 @@ export default function DiscoveryPage() {
         </Link>
       </div>
 
-      {/* Directory Tab Bar */}
       <div className="grid grid-cols-2 gap-1 bg-gray-200 p-1 rounded-lg text-center text-xs font-bold">
         <button
           onClick={() => setTab('groups')}
@@ -112,7 +122,7 @@ export default function DiscoveryPage() {
                   <div>
                     <h3 className="text-lg font-black tracking-tight">{group.name}</h3>
                     <p className="text-xs font-bold text-gray-500 flex items-center gap-1 mt-0.5">
-                      <MapPin size={12} /> {group.region} {group.ao !== 'N/A' && `• ${group.ao}`}
+                      <MapPin size={12} /> {group.region} {group.ao && group.ao !== 'N/A' ? `• ${group.ao}` : ''}
                     </p>
                   </div>
 
@@ -122,7 +132,10 @@ export default function DiscoveryPage() {
                     </span>
 
                     {status === 'approved' ? (
-                      <Link href={`/group/${group.id}`} className="bg-green-700 text-white font-bold text-xs px-3 py-2 rounded flex items-center gap-1">
+                      <Link
+                        href={`/group/${group.id}`}
+                        className="bg-green-700 text-white font-bold text-xs px-3 py-2 rounded flex items-center gap-1"
+                      >
                         <Check size={14} /> Member (Enter)
                       </Link>
                     ) : status === 'pending' ? (
@@ -130,7 +143,10 @@ export default function DiscoveryPage() {
                         <Clock size={14} /> Pending Approval
                       </span>
                     ) : (
-                      <button onClick={() => handleRequestJoin(group.id)} className="bg-black text-white font-bold text-xs px-3 py-2 rounded active:bg-gray-800">
+                      <button
+                        onClick={() => handleRequestJoin(group.id)}
+                        className="bg-black text-white font-bold text-xs px-3 py-2 rounded active:bg-gray-800"
+                      >
                         Request to Join
                       </button>
                     )}
