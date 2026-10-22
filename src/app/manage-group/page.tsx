@@ -1,224 +1,230 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Shield, Check, X, ArrowLeft, Users, BookOpen, Save } from 'lucide-react';
+import { ArrowLeft, Shield, Check, X, BookOpen, Save } from 'lucide-react';
 
 interface PendingMember {
   user_id: string;
   group_id: string;
-  group_name: string;
-  status: string;
-  f3_name: string;
-  real_name: string;
+  profiles: {
+    f3_name: string;
+    real_name: string;
+    region: string;
+    home_ao: string;
+  };
 }
 
-interface MasterStudy {
+interface GroupInfo {
   id: string;
-  title: string;
-  total_days: number;
+  name: string;
+  q_id: string;
+  active_study_id: string;
 }
 
 function ManageGroupContent() {
-  const searchParams = useSearchParams();
   const router = useRouter();
-  const targetGroupId = searchParams.get('groupId');
+  const searchParams = useSearchParams();
+  const groupId = searchParams.get('groupId');
 
-  const [pendingList, setPendingList] = useState<PendingMember[]>([]);
-  const [studies, setStudies] = useState<MasterStudy[]>([]);
-  const [selectedStudyId, setSelectedStudyId] = useState<string>('');
-  const [groupName, setGroupName] = useState('');
+  const [group, setGroup] = useState<GroupInfo | null>(null);
+  const [pendingMembers, setPendingMembers] = useState<PendingMember[]>([]);
+  const [activeStudy, setActiveStudy] = useState('being-him');
   const [loading, setLoading] = useState(true);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [savingStudy, setSavingStudy] = useState(false);
 
-  const fetchGroupAndRequests = async () => {
-    setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      router.push('/login');
-      return;
-    }
+  useEffect(() => {
+    if (!groupId) return;
 
-    // 1. Fetch Master Studies Library
-    const { data: studiesData } = await supabase.from('master_studies').select('id, title, total_days');
-    if (studiesData) setStudies(studiesData);
-
-    // 2. Fetch Group Details
-    if (targetGroupId) {
+    async function loadData() {
+      // 1. Fetch Group Details
       const { data: groupData } = await supabase
         .from('groups')
-        .select('name, active_study_id')
-        .eq('id', targetGroupId)
+        .select('id, name, q_id, active_study_id')
+        .eq('id', groupId)
         .single();
 
       if (groupData) {
-        setGroupName(groupData.name);
-        if (groupData.active_study_id) {
-          setSelectedStudyId(groupData.active_study_id);
-        } else if (studiesData && studiesData.length > 0) {
-          setSelectedStudyId(studiesData[0].id);
-        }
+        setGroup(groupData);
+        setActiveStudy(groupData.active_study_id || 'being-him');
       }
+
+      // 2. Fetch Pending Join Requests
+      const { data: pendingData } = await supabase
+        .from('group_members')
+        .select(`
+          user_id,
+          group_id,
+          profiles (f3_name, real_name, region, home_ao)
+        `)
+        .eq('group_id', groupId)
+        .eq('status', 'pending');
+
+      if (pendingData) {
+        setPendingMembers(pendingData as any);
+      }
+
+      setLoading(false);
     }
 
-    // 3. Fetch Pending Join Requests
-    let query = supabase
-      .from('group_members')
-      .select('user_id, group_id, status, groups(name), profiles(f3_name, real_name)')
-      .eq('status', 'pending');
+    loadData();
+  }, [groupId]);
 
-    if (targetGroupId) {
-      query = query.eq('group_id', targetGroupId);
-    }
-
-    const { data: pendingData } = await query;
-
-    if (pendingData) {
-      const formatted: PendingMember[] = pendingData.map((item: any) => ({
-        user_id: item.user_id,
-        group_id: item.group_id,
-        group_name: item.groups?.name || 'Unknown Group',
-        status: item.status,
-        f3_name: item.profiles?.f3_name || 'Pax',
-        real_name: item.profiles?.real_name || 'N/A',
-      }));
-      setPendingList(formatted);
-    }
-
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchGroupAndRequests();
-  }, [targetGroupId]);
-
-  const handleSaveStudyTrack = async () => {
-    if (!targetGroupId || !selectedStudyId) return;
+ const handleUpdateStudy = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!groupId) return;
+    setSavingStudy(true);
 
     const { error } = await supabase
       .from('groups')
-      .update({ active_study_id: selectedStudyId })
-      .eq('id', targetGroupId);
+      .update({ active_study_id: activeStudy })
+      .eq('id', groupId);
 
-    if (!error) {
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+    setSavingStudy(false);
+
+    if (error) {
+      alert('Error updating active study: ' + error.message);
+    } else {
+      alert('Active study track updated successfully!');
+      // Force a full browser reload to bypass Next.js client cache and load the new track
+      window.location.href = `/group/${groupId}`;
     }
   };
 
-  const handleDecision = async (groupId: string, userId: string, decision: 'approved' | 'rejected') => {
+  const handleApprove = async (userId: string) => {
     const { error } = await supabase
       .from('group_members')
-      .update({ status: decision })
+      .update({ status: 'approved' })
       .eq('group_id', groupId)
       .eq('user_id', userId);
 
     if (!error) {
-      setPendingList((prev) => prev.filter((item) => !(item.group_id === groupId && item.user_id === userId)));
+      setPendingMembers((prev) => prev.filter((m) => m.user_id !== userId));
+    } else {
+      alert('Error approving member: ' + error.message);
     }
   };
 
+  const handleReject = async (userId: string) => {
+    const { error } = await supabase
+      .from('group_members')
+      .delete()
+      .eq('group_id', groupId)
+      .eq('user_id', userId);
+
+    if (!error) {
+      setPendingMembers((prev) => prev.filter((m) => m.user_id !== userId));
+    } else {
+      alert('Error rejecting member: ' + error.message);
+    }
+  };
+
+  if (loading) {
+    return <p className="text-center text-xs font-bold text-gray-400 py-12 uppercase">Loading Panel...</p>;
+  }
+
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      <div className="flex items-center justify-between">
-        <Link href="/group" className="bg-gray-100 p-2 rounded-full text-gray-700 hover:bg-gray-200">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <Link href={groupId ? `/group/${groupId}` : '/discovery'} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
           <ArrowLeft size={18} />
         </Link>
         <h1 className="text-xl font-black tracking-tight">Q APPROVAL PANEL</h1>
-        <Shield size={20} className="text-black" />
       </div>
 
-      {groupName && (
-        <div className="bg-black text-white p-3.5 rounded-lg text-xs font-bold flex items-center justify-between shadow-sm">
-          <span>Group: {groupName}</span>
-          <span className="bg-white/20 px-2 py-0.5 rounded text-[10px]">Q Leader</span>
+      {/* Group Info Badge */}
+      <div className="bg-black text-white p-4 rounded-xl flex justify-between items-center shadow-sm">
+        <div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Group</span>
+          <h2 className="text-base font-black">{group?.name}</h2>
         </div>
-      )}
+        <span className="bg-gray-800 text-gray-200 text-xs font-bold px-2.5 py-1 rounded-md flex items-center gap-1">
+          <Shield size={12} /> Q Leader
+        </span>
+      </div>
 
-      {/* INTERACTIVE STUDY TRACK SELECTOR */}
-      {targetGroupId && (
-        <section className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3">
-          <h2 className="text-xs font-black uppercase text-gray-500 tracking-wider flex items-center gap-1.5">
-            <BookOpen size={14} className="text-black" /> Active Study Track
-          </h2>
+      {/* Active Study Track Form */}
+      <form onSubmit={handleUpdateStudy} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+        <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
+          <BookOpen size={16} className="text-black" />
+          <h3 className="text-xs font-black uppercase tracking-wider">Active Study Track</h3>
+        </div>
 
-          <div className="space-y-2">
-            <select
-              value={selectedStudyId}
-              onChange={(e) => setSelectedStudyId(e.target.value)}
-              className="w-full border border-gray-300 rounded p-2.5 text-xs font-bold bg-white focus:ring-black focus:border-black"
-            >
-              {studies.length === 0 ? (
-                <option value="">Being HIM (14 Days)</option>
-              ) : (
-                studies.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.title} ({s.total_days} Days)
-                  </option>
-                ))
-              )}
-            </select>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-black uppercase tracking-wider text-gray-500">Select Track</label>
+          <select
+            value={activeStudy}
+            onChange={(e) => setActiveStudy(e.target.value)}
+            className="w-full px-3 py-3 border border-gray-300 rounded-xl text-xs bg-white focus:ring-black focus:border-black outline-none font-bold"
+          >
+            <option value="being-him">Being HIM (14 Days)</option>
+            <option value="godly-man">Godly Man (7 Days)</option>
+          </select>
+        </div>
 
-            <button
-              onClick={handleSaveStudyTrack}
-              className="w-full bg-black text-white font-bold text-xs py-2 rounded flex items-center justify-center gap-1.5 active:bg-gray-800"
-            >
-              <Save size={14} /> {saveSuccess ? 'Track Updated!' : 'Update Active Study'}
-            </button>
-          </div>
-        </section>
-      )}
+        <button
+          type="submit"
+          disabled={savingStudy}
+          className="w-full bg-black text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider hover:bg-gray-800 disabled:opacity-50 transition-all shadow-sm flex items-center justify-center gap-1.5"
+        >
+          {savingStudy ? 'Updating...' : <><Save size={14} /> Update Active Study</>}
+        </button>
+      </form>
 
-      {/* PENDING REQUESTS PANEL */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-black uppercase text-gray-400 tracking-wider flex items-center gap-1.5">
-          <Users size={14} /> Pending Join Requests ({pendingList.length})
-        </h2>
+      {/* Pending Join Requests */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Shield size={18} className="text-black" />
+          <h3 className="text-xs font-black uppercase tracking-wider">Pending Join Requests ({pendingMembers.length})</h3>
+        </div>
 
-        {loading ? (
-          <p className="text-center text-xs font-bold text-gray-400 py-8">Loading requests...</p>
-        ) : pendingList.length === 0 ? (
-          <div className="bg-white p-6 rounded-lg border border-gray-200 text-center space-y-1">
-            <p className="text-sm font-bold text-gray-800">No pending requests</p>
-            <p className="text-xs text-gray-400">All join requests for this group have been processed.</p>
-          </div>
-        ) : (
-          pendingList.map((req) => (
-            <div key={`${req.group_id}-${req.user_id}`} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm flex items-center justify-between">
-              <div>
-                <h3 className="font-black text-sm text-gray-900">{req.f3_name}</h3>
-                <p className="text-xs text-gray-500 font-bold">Hospital Name: {req.real_name}</p>
-                <p className="text-[10px] text-gray-400 font-bold mt-1">Group: {req.group_name}</p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => handleDecision(req.group_id, req.user_id, 'approved')}
-                  className="bg-green-600 text-white p-2 rounded hover:bg-green-700 transition-colors"
-                  title="Approve Member"
-                >
-                  <Check size={16} />
-                </button>
-                <button
-                  onClick={() => handleDecision(req.group_id, req.user_id, 'rejected')}
-                  className="bg-red-600 text-white p-2 rounded hover:bg-red-700 transition-colors"
-                  title="Reject Request"
-                >
-                  <X size={16} />
-                </button>
-              </div>
+        <div className="space-y-2">
+          {pendingMembers.length === 0 ? (
+            <div className="bg-white p-5 rounded-xl border border-gray-200 text-center text-xs text-gray-400 space-y-1">
+              <p className="font-bold text-gray-600">No pending requests</p>
+              <p>All join requests for this group have been processed.</p>
             </div>
-          ))
-        )}
-      </section>
+          ) : (
+            pendingMembers.map((m) => (
+              <div key={m.user_id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex justify-between items-center">
+                <div>
+                  <h4 className="text-xs font-black">{m.profiles?.f3_name || m.profiles?.real_name || 'Pax'}</h4>
+                  <p className="text-[10px] text-gray-500">
+                    {m.profiles?.region} {m.profiles?.home_ao ? `• ${m.profiles.home_ao}` : ''}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleApprove(m.user_id)}
+                    className="bg-green-700 text-white p-2 rounded-lg hover:bg-green-800 transition-colors"
+                    title="Approve"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleReject(m.user_id)}
+                    className="bg-red-100 text-red-700 p-2 rounded-lg hover:bg-red-200 transition-colors"
+                    title="Reject"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
     </main>
   );
 }
 
 export default function ManageGroupPage() {
   return (
-    <Suspense fallback={<div className="p-4 text-xs font-bold text-gray-400 text-center">Loading Panel...</div>}>
+    <Suspense fallback={<p className="text-center text-xs font-bold text-gray-400 py-12 uppercase">Loading Panel...</p>}>
       <ManageGroupContent />
     </Suspense>
   );

@@ -2,8 +2,11 @@
 
 import { useEffect, useState, use } from 'react';
 import { supabase } from '@/lib/supabase';
+import { GroupHeader } from '@/components/group/GroupHeader';
+import { PaceStatusBanner } from '@/components/group/PaceStatusBanner';
+import { PersonalSchedule } from '@/components/group/PersonalSchedule';
 import Link from 'next/link';
-import { BookOpen, CheckCircle2, AlertCircle, Calendar, ArrowLeft, Settings, Send, MessageSquare, Pin, Check, X } from 'lucide-react';
+import { Calendar, MessageSquare, Send, Pin, Check, X, Settings } from 'lucide-react';
 
 interface GroupData {
   id: string;
@@ -12,6 +15,7 @@ interface GroupData {
   ao: string;
   q_id: string;
   start_date: string;
+  active_study_id: string;
   master_studies: {
     id: string;
     title: string;
@@ -57,8 +61,8 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
   const [members, setMembers] = useState<Member[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [accountabilityData, setAccountabilityData] = useState<AccountabilityRecord[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
   
-  // Discussion state
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
@@ -74,15 +78,26 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
 
       const { data: groupData } = await supabase
         .from('groups')
-        .select(`
-          id, name, region, ao, q_id, start_date,
-          master_studies:active_study_id (id, title, total_days)
-        `)
+        .select('id, name, region, ao, q_id, start_date, active_study_id')
         .eq('id', groupId)
         .single();
 
       if (groupData) {
-        setGroup(groupData as any);
+        const studyId = groupData.active_study_id || 'being-him';
+        const defaultStudy = studyId === 'godly-man'
+          ? { id: 'godly-man', title: 'Godly Man', total_days: 7 }
+          : { id: 'being-him', title: 'Being HIM', total_days: 14 };
+
+        const { data: studyData } = await supabase
+          .from('master_studies')
+          .select('id, title, total_days')
+          .eq('id', studyId)
+          .single();
+
+        setGroup({
+          ...groupData,
+          master_studies: studyData || defaultStudy
+        } as any);
 
         const { data: memberData } = await supabase
           .from('group_members')
@@ -91,6 +106,14 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
           .eq('status', 'approved');
 
         if (memberData) setMembers(memberData as any);
+
+        const { count } = await supabase
+          .from('group_members')
+          .select('*', { count: 'exact', head: true })
+          .eq('group_id', groupId)
+          .eq('status', 'pending');
+
+        setPendingCount(count || 0);
 
         const { data: accountabilityList } = await supabase
           .from('accountability')
@@ -247,7 +270,8 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
 
   const study = group.master_studies || { id: 'being-him', title: 'Being HIM', total_days: 14 };
   const studySlug = study.id || 'being-him';
-  const startDate = group.start_date ? new Date(group.start_date) : new Date();
+  
+  const startDate = group.start_date ? new Date(group.start_date + 'T00:00:00') : new Date();
   const today = new Date();
   
   const diffTime = today.getTime() - startDate.getTime();
@@ -279,85 +303,30 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      {/* Header Bar */}
-      <div className="flex justify-between items-center">
-        <Link href="/group" className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
-          <ArrowLeft size={18} />
-        </Link>
-        <h1 className="text-xl font-black tracking-tight">{group.name}</h1>
-        {isQ ? (
-          <Link href={`/manage-group?groupId=${group.id}`} className="p-2 rounded-full bg-black text-white hover:bg-gray-800">
-            <Settings size={18} />
-          </Link>
-        ) : (
-          <div className="w-9" />
-        )}
-      </div>
+      <GroupHeader
+        groupId={group.id}
+        groupName={group.name}
+        isQ={isQ}
+        pendingCount={pendingCount}
+      />
 
-      {/* Pace Status Banner */}
-      <div className="bg-black text-white p-5 rounded-xl space-y-4 shadow-md">
-        <div className="flex justify-between items-start">
-          <div>
-            <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Active Track</span>
-            <h2 className="text-xl font-black">{study.title}</h2>
-          </div>
-          <span className="bg-gray-800 text-gray-200 text-xs font-bold px-2.5 py-1 rounded-md flex items-center gap-1">
-            <Calendar size={12} /> Day {targetDay} of {study.total_days}
-          </span>
-        </div>
+      <PaceStatusBanner
+        studyTitle={study.title}
+        studySlug={studySlug}
+        targetDay={targetDay}
+        totalDays={study.total_days}
+        daysBehind={daysBehind}
+        userNextDay={userNextDay}
+      />
 
-        <div className="pt-3 border-t border-gray-800 flex justify-between items-center">
-          <div className="text-xs">
-            <p className="text-gray-400 font-bold text-[10px] uppercase">Your Status</p>
-            {daysBehind <= 0 ? (
-              <p className="text-green-400 font-black flex items-center gap-1">
-                <CheckCircle2 size={14} /> Caught Up!
-              </p>
-            ) : (
-              <p className="text-amber-400 font-black flex items-center gap-1">
-                <AlertCircle size={14} /> {daysBehind} {daysBehind === 1 ? 'Day' : 'Days'} Behind
-              </p>
-            )}
-          </div>
+      <PersonalSchedule
+        daysArray={daysArray}
+        userCompletedDays={userCompletedDays}
+        targetDay={targetDay}
+        studySlug={studySlug}
+      />
 
-          <Link
-            href={`/study?study=${studySlug}&day=${userNextDay}`}
-            className="bg-white text-black font-black text-xs px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-1.5"
-          >
-            Read Day {userNextDay} <BookOpen size={14} />
-          </Link>
-        </div>
-      </div>
-
-      {/* 1. Personal Date Boxes linked directly to study content */}
-      <div className="space-y-3">
-        <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider">Your Reading Schedule</h3>
-        <div className="grid grid-cols-7 gap-1.5">
-          {daysArray.map((d) => {
-            const isDone = userCompletedDays.includes(d.dayNumber);
-            const isPastOrToday = d.dayNumber <= targetDay;
-
-            const bgClass = isDone 
-              ? 'bg-green-700 text-white border-green-800 hover:bg-green-800' 
-              : isPastOrToday 
-              ? 'bg-red-600 text-white border-red-700 hover:bg-red-700' 
-              : 'bg-white text-gray-900 border-gray-200 hover:border-gray-400';
-
-            return (
-              <Link
-                key={d.dayNumber}
-                href={`/study?study=${studySlug}&day=${d.dayNumber}`}
-                className={`p-2 rounded-lg border text-center flex items-center justify-center transition-all shadow-sm ${bgClass}`}
-                title={`Day ${d.dayNumber} - ${d.dateString}`}
-              >
-                <span className="text-xs font-black">{d.dateString}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 2. Accountability Grid Table with Frozen PAX Column */}
+      {/* Accountability Grid Table */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
         <div className="flex justify-between items-center border-b border-gray-100 pb-3">
           <h3 className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">

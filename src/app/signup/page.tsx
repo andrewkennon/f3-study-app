@@ -18,10 +18,16 @@ export default function SignupPage() {
     setMessage('');
     setLoading(true);
 
-    // 1. Create Auth Account
+    // 1. Create Auth Account with user metadata
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          f3_name: f3Name.trim(),
+          real_name: realName.trim(),
+        },
+      },
     });
 
     if (authError) {
@@ -30,16 +36,19 @@ export default function SignupPage() {
       return;
     }
 
-    // 2. Insert Profile Data into profiles table
+    // 2. Upsert Profile Data into profiles table to ensure row exists and updates cleanly
     if (authData.user) {
-      const { error: profileError } = await supabase.from('profiles').insert([
-        {
-          id: authData.user.id,
-          f3_name: f3Name,
-          real_name: realName, // Hospital Name stored cleanly
-          email: email,
-        },
-      ]);
+      const { error: profileError } = await supabase.from('profiles').upsert(
+        [
+          {
+            id: authData.user.id,
+            f3_name: f3Name.trim(),
+            real_name: realName.trim(), // Hospital Name stored cleanly
+            email: email.trim(),
+          },
+        ],
+        { onConflict: 'id' }
+      );
 
       if (profileError) {
         setMessage(`Profile Error: ${profileError.message}`);
@@ -71,7 +80,7 @@ export default function SignupPage() {
               required
               value={f3Name}
               onChange={(e) => setF3Name(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white"
+              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white font-bold"
               placeholder="e.g. Stat"
             />
           </div>
@@ -83,7 +92,7 @@ export default function SignupPage() {
               required
               value={realName}
               onChange={(e) => setRealName(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white"
+              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white font-bold"
               placeholder="e.g. Andrew Kennon"
             />
             <p className="text-[10px] text-gray-400 mt-1">
@@ -98,7 +107,7 @@ export default function SignupPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white"
+              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white font-bold"
               placeholder="pax@example.com"
             />
           </div>
@@ -110,7 +119,7 @@ export default function SignupPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white"
+              className="w-full p-3 border border-gray-300 rounded text-sm focus:ring-black focus:border-black bg-white font-bold"
               placeholder="••••••••"
             />
           </div>
