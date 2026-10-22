@@ -2,145 +2,242 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Send, MessageSquare } from 'lucide-react';
+import { Shield, Send } from 'lucide-react';
 
 interface Post {
   id: string;
-  user_name: string;
-  category: string;
+  category: 'Prayer' | 'Study' | 'General';
   content: string;
   created_at: string;
+  user_id: string;
+  profiles: {
+    f3_name: string;
+    real_name: string;
+    region: string;
+  };
+}
+
+interface PaxProfile {
+  id: string;
+  f3_name: string;
+  real_name: string;
+  region: string;
 }
 
 export default function MumblechatterPage() {
-  const [activeTab, setActiveTab] = useState<'Prayer Requests' | 'Study Requests' | 'General'>('Prayer Requests');
+  const [tab, setTab] = useState<'Prayer' | 'Study' | 'General'>('Prayer');
   const [posts, setPosts] = useState<Post[]>([]);
-  const [newPost, setNewPost] = useState('');
+  const [allPax, setAllPax] = useState<PaxProfile[]>([]);
+  const [newPostContent, setNewPostContent] = useState('');
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [userF3Name, setUserF3Name] = useState<string>('Pax');
+  const [mentionSearch, setMentionSearch] = useState('');
+  const [showMentionBox, setShowMentionBox] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [posting, setPosting] = useState(false);
+
+  useEffect(() => {
+    async function init() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUserId(user.id);
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('f3_name, real_name')
+          .eq('id', user.id)
+          .single();
+
+        if (profile) {
+          setUserF3Name(profile.f3_name || profile.real_name || 'Pax');
+        }
+      }
+
+      // Fetch region Pax profiles for @ tagging
+      const { data: paxList } = await supabase
+        .from('profiles')
+        .select('id, f3_name, real_name, region');
+      if (paxList) setAllPax(paxList as any);
+
+      fetchPosts();
+    }
+
+    init();
+  }, [tab]);
 
   const fetchPosts = async () => {
-    const { data } = await supabase
+    setLoading(true);
+    const { data, error } = await supabase
       .from('mumblechatter_posts')
-      .select('*')
+      .select(`
+        id, category, content, created_at, user_id,
+        profiles (f3_name, real_name, region)
+      `)
+      .eq('category', tab)
       .order('created_at', { ascending: false });
-    if (data) setPosts(data);
+
+    if (!error && data) {
+      setPosts(data as any);
+    }
     setLoading(false);
   };
 
-  useEffect(() => {
-    fetchPosts();
-  }, []);
-
-  const handlePost = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPost.trim()) return;
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('f3_name, real_name')
-      .eq('id', user.id)
-      .single();
-
-    const authorName = profile?.f3_name || profile?.real_name || 'Pax';
-
-    const { error } = await supabase.from('mumblechatter_posts').insert([
-      {
-        user_id: user.id,
-        user_name: authorName,
-        category: activeTab,
-        content: newPost.trim(),
-      },
-    ]);
-
-    if (!error) {
-      setNewPost('');
-      fetchPosts();
+  const handleInputChange = (value: string) => {
+    setNewPostContent(value);
+    const lastWord = value.split(' ').pop() || '';
+    if (lastWord.startsWith('@')) {
+      setMentionSearch(lastWord.slice(1).toLowerCase());
+      setShowMentionBox(true);
+    } else {
+      setShowMentionBox(false);
     }
   };
 
-  // Filter feed based on active tab selection
-  const filteredPosts = posts.filter((p) => {
-    if (activeTab === 'Prayer Requests') {
-      return p.category === 'Prayer Requests' || p.category === 'Prayer Request';
+  const selectMention = (f3Name: string) => {
+    const words = newPostContent.split(' ');
+    words.pop();
+    setNewPostContent([...words, `@${f3Name} `].join(' '));
+    setShowMentionBox(false);
+  };
+
+  const handleCreatePost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPostContent.trim() || !currentUserId) return;
+
+    setPosting(true);
+
+    const { data: newPost, error } = await supabase
+      .from('mumblechatter_posts')
+      .insert([
+        {
+          user_id: currentUserId,
+          user_name: userF3Name,
+          category: tab,
+          content: newPostContent.trim(),
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      alert(`Error creating post: ${error.message}`);
+    } else {
+      // Trigger notifications for tagged Pax
+      const matches = newPostContent.match(/@(\w+)/g);
+      if (matches) {
+        const taggedNames = matches.map((m) => m.slice(1).toLowerCase());
+        const taggedUsers = allPax.filter((p) =>
+          taggedNames.includes((p.f3_name || '').toLowerCase())
+        );
+
+        for (const tagged of taggedUsers) {
+          if (tagged.id !== currentUserId) {
+            await supabase.from('notifications').insert([
+              {
+                user_id: tagged.id,
+                sender_id: currentUserId,
+                comment_id: newPost?.id,
+              },
+            ]);
+          }
+        }
+      }
+
+      setNewPostContent('');
+      setShowMentionBox(false);
+      fetchPosts();
     }
-    if (activeTab === 'Study Requests') {
-      return p.category === 'Study Requests' || p.category === 'Study Discussion';
-    }
-    return p.category === 'General' || (!p.category);
-  });
+
+    setPosting(false);
+  };
+
+  const filteredPax = allPax.filter((p) =>
+    (p.f3_name || '').toLowerCase().includes(mentionSearch)
+  );
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      <h1 className="text-2xl font-black tracking-tight">MUMBLECHATTER</h1>
-
-      {/* CATEGORY TOGGLE TABS */}
-      <div className="grid grid-cols-3 gap-1 bg-gray-200 p-1 rounded-lg text-center text-xs font-bold">
-        <button
-          onClick={() => setActiveTab('Prayer Requests')}
-          className={`py-2 rounded transition-all ${
-            activeTab === 'Prayer Requests' ? 'bg-white text-black shadow-sm' : 'text-gray-600'
-          }`}
-        >
-          Prayer
-        </button>
-        <button
-          onClick={() => setActiveTab('Study Requests')}
-          className={`py-2 rounded transition-all ${
-            activeTab === 'Study Requests' ? 'bg-white text-black shadow-sm' : 'text-gray-600'
-          }`}
-        >
-          Study
-        </button>
-        <button
-          onClick={() => setActiveTab('General')}
-          className={`py-2 rounded transition-all ${
-            activeTab === 'General' ? 'bg-white text-black shadow-sm' : 'text-gray-600'
-          }`}
-        >
-          General
-        </button>
+      <div className="flex justify-between items-center">
+        <h1 className="text-2xl font-black tracking-tight">MUMBLECHATTER</h1>
+        <span className="bg-black text-white text-[10px] font-black px-2.5 py-1 rounded-md flex items-center gap-1">
+          <Shield size={10} /> Region-Wide
+        </span>
       </div>
 
-      {/* COMPACT POST INPUT FORM */}
-      <form onSubmit={handlePost} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-3">
-        <textarea
-          value={newPost}
-          onChange={(e) => setNewPost(e.target.value)}
-          placeholder={`Post to ${activeTab}...`}
-          className="w-full p-3 border border-gray-300 rounded-lg text-xs h-20 focus:ring-black focus:border-black"
-        />
+      {/* Category Toggle Tabs */}
+      <div className="grid grid-cols-3 gap-1 bg-gray-200 p-1 rounded-lg text-center text-xs font-bold">
+        {(['Prayer', 'Study', 'General'] as const).map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setTab(cat)}
+            className={`py-2 rounded transition-all ${
+              tab === cat ? 'bg-white text-black shadow-sm' : 'text-gray-600 hover:text-black'
+            }`}
+          >
+            {cat === 'Prayer' ? 'Prayer Requests' : cat === 'Study' ? 'Study Requests' : 'General'}
+          </button>
+        ))}
+      </div>
 
-        <button
-          type="submit"
-          className="w-full bg-black text-white font-bold text-xs py-2.5 rounded flex items-center justify-center gap-2 active:bg-gray-800"
-        >
-          <Send size={14} /> Post to {activeTab}
-        </button>
+      {/* New Post Input Form with @ Tag Autocomplete */}
+      <form onSubmit={handleCreatePost} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3 relative">
+        {showMentionBox && filteredPax.length > 0 && (
+          <div className="absolute bottom-14 left-4 right-4 bg-white border border-gray-300 rounded-lg shadow-lg z-20 max-h-36 overflow-y-auto p-1">
+            {filteredPax.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => selectMention(p.f3_name || 'Pax')}
+                className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 rounded flex justify-between"
+              >
+                <span>{p.f3_name || p.real_name}</span>
+                <span className="text-[10px] text-gray-400">({p.region || 'F3 Jacksonville'})</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <textarea
+          value={newPostContent}
+          onChange={(e) => handleInputChange(e.target.value)}
+          placeholder={`Post a ${tab === 'Prayer' ? 'prayer request' : tab === 'Study' ? 'study request' : 'message'} or tag @Pax...`}
+          rows={3}
+          className="w-full p-3 border border-gray-300 rounded-lg text-xs bg-white focus:ring-black focus:border-black resize-none"
+        />
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={posting || !newPostContent.trim()}
+            className="bg-black text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1.5"
+          >
+            {posting ? 'Posting...' : 'Post'} <Send size={12} />
+          </button>
+        </div>
       </form>
 
-      {/* FILTERED FEED */}
+      {/* Posts Stream */}
       <div className="space-y-3">
         {loading ? (
-          <p className="text-center text-xs text-gray-400 font-bold uppercase py-8">Loading Feed...</p>
-        ) : filteredPosts.length === 0 ? (
-          <div className="bg-white p-6 rounded-lg border border-gray-200 text-center space-y-1">
-            <MessageSquare size={20} className="mx-auto text-gray-400 mb-1" />
-            <p className="text-xs font-bold text-gray-500">No posts under {activeTab} yet.</p>
-            <p className="text-[10px] text-gray-400">Be the first Pax to share a message above!</p>
-          </div>
+          <p className="text-center text-xs font-bold text-gray-400 py-8 uppercase">Loading Posts...</p>
+        ) : posts.length === 0 ? (
+          <p className="text-center text-xs text-gray-400 py-8">
+            No posts in {tab} yet. Be the first to share!
+          </p>
         ) : (
-          filteredPosts.map((p) => (
-            <div key={p.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm space-y-1.5">
+          posts.map((post) => (
+            <div key={post.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-2">
               <div className="flex justify-between items-center">
-                <span className="font-black text-sm text-gray-900">{p.user_name}</span>
-                <span className="text-[10px] text-gray-400 font-bold">
-                  {new Date(p.created_at).toLocaleDateString()}
+                <span className="text-xs font-black">
+                  {post.profiles?.f3_name || post.profiles?.real_name || 'Pax'}
+                  <span className="text-[10px] text-gray-500 font-normal ml-1">
+                    ({post.profiles?.region || 'F3 Jacksonville'})
+                  </span>
+                </span>
+                <span className="text-[10px] text-gray-400">
+                  {new Date(post.created_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
                 </span>
               </div>
-              <p className="text-xs text-gray-700 leading-normal">{p.content}</p>
+              <p className="text-xs text-gray-800 leading-relaxed">{post.content}</p>
             </div>
           ))
         )}

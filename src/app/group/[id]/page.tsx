@@ -1,309 +1,528 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState, use } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { Check, BookOpen, MessageSquare, Shield, Send, Settings } from 'lucide-react';
+import { BookOpen, CheckCircle2, AlertCircle, Calendar, ArrowLeft, Settings, Send, MessageSquare, Pin, ThumbsUp, Heart, Target, Flame } from 'lucide-react';
 
-interface MemberCheck {
-  f3Name: string;
-  checks: boolean[];
+interface GroupData {
+  id: string;
+  name: string;
+  region: string;
+  ao: string;
+  q_id: string;
+  start_date: string;
+  master_studies: {
+    id: string;
+    title: string;
+    total_days: number;
+  };
+}
+
+interface Member {
+  user_id: string;
+  profiles: {
+    f3_name: string;
+    real_name: string;
+    region: string;
+  };
 }
 
 interface Comment {
   id: string;
-  user_name: string;
+  parent_id: string | null;
   content: string;
+  is_pinned: boolean;
   created_at: string;
+  user_id: string;
+  profiles: {
+    f3_name: string;
+    real_name: string;
+    region: string;
+  };
+  reactions?: Record<string, number>;
 }
 
-export default function DynamicGroupPage() {
-  const params = useParams();
-  const router = useRouter();
-  const groupId = params.id as string;
+export default function GroupDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
+  const groupId = resolvedParams.id;
 
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [groupName, setGroupName] = useState('');
-  const [region, setRegion] = useState('');
-  const [ao, setAo] = useState('');
-  const [pendingCount, setPendingCount] = useState<number>(0);
-  const [paxChecks, setPaxChecks] = useState<MemberCheck[]>([]);
+  const [group, setGroup] = useState<GroupData | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [completedDays, setCompletedDays] = useState<number[]>([]);
+  
+  // Discussion state
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [mentionSearch, setMentionSearch] = useState('');
+  const [showMentionBox, setShowMentionBox] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function initGroupData() {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          router.push('/login');
-          return;
-        }
+    async function fetchGroupDetails() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) setCurrentUserId(user.id);
 
-        // 1. Verify Membership & Load Group Info
-        const { data: group } = await supabase
-          .from('groups')
-          .select('*')
-          .eq('id', groupId)
-          .single();
+      const { data: groupData } = await supabase
+        .from('groups')
+        .select(`
+          id, name, region, ao, q_id, start_date,
+          master_studies:active_study_id (id, title, total_days)
+        `)
+        .eq('id', groupId)
+        .single();
 
-        if (group) {
-          setGroupName(group.name || 'Group Study');
-          setRegion(group.region || 'F3');
-          setAo(group.ao || '');
-        }
+      if (groupData) {
+        setGroup(groupData as any);
 
-        const { data: member } = await supabase
-          .from('group_members')
-          .select('*')
-          .eq('group_id', groupId)
-          .eq('user_id', user.id)
-          .eq('status', 'approved')
-          .single();
-
-        if (!member) {
-          router.push('/discovery');
-          return;
-        }
-
-        setIsAuthorized(true);
-
-        // 2. Fetch Pending Join Requests Count Safely
-        try {
-          const { count } = await supabase
-            .from('group_members')
-            .select('*', { count: 'exact', head: true })
+        if (user) {
+          const { data: accountability } = await supabase
+            .from('accountability')
+            .select('day_number')
             .eq('group_id', groupId)
-            .eq('status', 'pending');
+            .eq('user_id', user.id)
+            .eq('completed', true);
 
-          if (count !== null) setPendingCount(count);
-        } catch (err) {
-          console.warn('Could not fetch pending count:', err);
+          if (accountability) {
+            setCompletedDays(accountability.map((a) => a.day_number));
+          }
         }
 
-        // 3. Fetch Group Members & Accountability Checks
-        const { data: members } = await supabase
+        // Fetch Group Members for @ tagging
+        const { data: memberData } = await supabase
           .from('group_members')
-          .select('user_id, profiles(id, f3_name, real_name)')
+          .select('user_id, profiles(f3_name, real_name, region)')
           .eq('group_id', groupId)
           .eq('status', 'approved');
 
-        const memberUserIds = members ? members.map((m: any) => m.user_id) : [];
+        if (memberData) setMembers(memberData as any);
 
-        const { data: accountability } = await supabase
-          .from('accountability')
-          .select('user_id, day_number, group_id')
-          .or(`group_id.eq.${groupId},user_id.in.(${memberUserIds.join(',')})`);
+        fetchComments();
+      }
+      setLoading(false);
+    }
 
-        if (members) {
-          const gridData = members.map((m: any) => {
-            const profile = m.profiles;
-            const name = profile?.f3_name || profile?.real_name || 'Pax';
+    fetchGroupDetails();
+  }, [groupId]);
 
-            const userCompletions = accountability
-              ? accountability
-                  .filter((a) => a.user_id === m.user_id)
-                  .map((a) => Number(a.day_number))
-              : [];
+  const fetchComments = async () => {
+    const { data: commentList } = await supabase
+      .from('group_comments')
+      .select(`
+        id, parent_id, content, is_pinned, created_at, user_id,
+        profiles (f3_name, real_name, region)
+      `)
+      .eq('group_id', groupId)
+      .order('is_pinned', { ascending: false })
+      .order('created_at', { ascending: false });
 
-            const checks = Array.from({ length: 14 }, (_, i) => userCompletions.includes(i + 1));
+    if (commentList) {
+      // Fetch reactions for these comments
+      const commentIds = commentList.map((c) => c.id);
+      if (commentIds.length > 0) {
+        const { data: reactionsData } = await supabase
+          .from('comment_reactions')
+          .select('comment_id, emoji')
+          .in('comment_id', commentIds);
 
-            return {
-              f3Name: name,
-              checks,
-            };
+        const reactionMap: Record<string, Record<string, number>> = {};
+        if (reactionsData) {
+          reactionsData.forEach((r: any) => {
+            if (!reactionMap[r.comment_id]) reactionMap[r.comment_id] = {};
+            reactionMap[r.comment_id][r.emoji] = (reactionMap[r.comment_id][r.emoji] || 0) + 1;
           });
-
-          setPaxChecks(gridData);
         }
 
-        // 4. Fetch Discussion Feed
-        const { data: commentData } = await supabase
-          .from('group_comments')
-          .select('*')
-          .eq('group_id', groupId)
-          .order('created_at', { ascending: false });
+        setComments(
+          commentList.map((c: any) => ({
+            ...c,
+            reactions: reactionMap[c.id] || {},
+          }))
+        );
+      } else {
+        setComments(commentList as any);
+      }
+    }
+  };
 
-        if (commentData) {
-          setComments(commentData);
+  const handleInputChange = (value: string) => {
+    setNewComment(value);
+    const lastWord = value.split(' ').pop() || '';
+    if (lastWord.startsWith('@')) {
+      setMentionSearch(lastWord.slice(1).toLowerCase());
+      setShowMentionBox(true);
+    } else {
+      setShowMentionBox(false);
+    }
+  };
+
+  const selectMention = (f3Name: string) => {
+    const words = newComment.split(' ');
+    words.pop();
+    setNewComment([...words, `@${f3Name} `].join(' '));
+    setShowMentionBox(false);
+  };
+
+  const handlePostComment = async (parentId: string | null = null, contentText: string) => {
+    if (!contentText.trim() || !currentUserId) return;
+
+    const { data: newPost, error } = await supabase
+      .from('group_comments')
+      .insert([
+        {
+          group_id: groupId,
+          user_id: currentUserId,
+          parent_id: parentId,
+          content: contentText.trim(),
+        },
+      ])
+      .select()
+      .single();
+
+    if (!error && newPost) {
+      // Parse @ tags and trigger notifications
+      const matches = contentText.match(/@(\w+)/g);
+      if (matches) {
+        const taggedNames = matches.map((m) => m.slice(1).toLowerCase());
+        const taggedMembers = members.filter((m) =>
+          taggedNames.includes((m.profiles?.f3_name || '').toLowerCase())
+        );
+
+        for (const tagged of taggedMembers) {
+          if (tagged.user_id !== currentUserId) {
+            await supabase.from('notifications').insert([
+              {
+                user_id: tagged.user_id,
+                sender_id: currentUserId,
+                group_id: groupId,
+                comment_id: newPost.id,
+              },
+            ]);
+          }
         }
-      } catch (error) {
-        console.error('Error initializing group page:', error);
-      } finally {
-        setLoading(false);
       }
+
+      setNewComment('');
+      setReplyText('');
+      setReplyingToId(null);
+      fetchComments();
     }
+  };
 
-    if (groupId) initGroupData();
-  }, [groupId, router]);
+  const togglePin = async (commentId: string, currentPinned: boolean) => {
+    await supabase
+      .from('group_comments')
+      .update({ is_pinned: !currentPinned })
+      .eq('id', commentId);
+    fetchComments();
+  };
 
-  const handlePostComment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newComment.trim() || isSubmitting) return;
+  const toggleReaction = async (commentId: string, emoji: string) => {
+    if (!currentUserId) return;
 
-    setIsSubmitting(true);
-    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('comment_reactions').insert([
+      { comment_id: commentId, user_id: currentUserId, emoji },
+    ]);
 
-    if (user) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('f3_name, real_name')
-        .eq('id', user.id)
-        .single();
-
-      const authorName = profile?.f3_name || profile?.real_name || 'Pax';
-
-      const { data, error } = await supabase
-        .from('group_comments')
-        .insert([
-          {
-            group_id: groupId,
-            user_id: user.id,
-            user_name: authorName,
-            content: newComment.trim(),
-          },
-        ])
-        .select()
-        .single();
-
-      if (!error && data) {
-        setComments((prev) => [data, ...prev]);
-        setNewComment('');
-      }
+    if (error) {
+      // Remove reaction if already toggled
+      await supabase
+        .from('comment_reactions')
+        .delete()
+        .eq('comment_id', commentId)
+        .eq('user_id', currentUserId)
+        .eq('emoji', emoji);
     }
-    setIsSubmitting(false);
+    fetchComments();
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex justify-center items-center text-xs font-bold text-gray-400 uppercase">
-        Loading Group...
-      </div>
-    );
+    return <p className="text-center text-xs font-bold text-gray-400 py-12 uppercase">Loading Group Data...</p>;
   }
 
-  if (!isAuthorized) return null;
+  if (!group) {
+    return <p className="text-center text-xs text-gray-500 py-12">Group not found.</p>;
+  }
+
+  const study = group.master_studies || { title: 'Being HIM', total_days: 14 };
+  const startDate = group.start_date ? new Date(group.start_date) : new Date();
+  const today = new Date();
+  
+  const diffTime = today.getTime() - startDate.getTime();
+  const rawDiffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+  const targetDay = Math.max(1, Math.min(rawDiffDays + 1, study.total_days));
+
+  const maxCompletedDay = completedDays.length > 0 ? Math.max(...completedDays) : 0;
+  const daysBehind = targetDay - maxCompletedDay;
+  const userNextDay = daysBehind > 0 ? Math.min(maxCompletedDay + 1, study.total_days) : targetDay;
+
+  const isQ = currentUserId === group.q_id;
+  const topLevelComments = comments.filter((c) => !c.parent_id);
+
+  const filteredMembers = members.filter((m) =>
+    (m.profiles?.f3_name || '').toLowerCase().includes(mentionSearch)
+  );
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      {/* HEADER SECTION WITH BADGE */}
-      <div className="bg-black text-white p-5 rounded-lg shadow-sm space-y-3">
+      {/* Header Bar */}
+      <div className="flex justify-between items-center">
+        <Link href="/group" className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
+          <ArrowLeft size={18} />
+        </Link>
+        <h1 className="text-xl font-black tracking-tight">{group.name}</h1>
+        {isQ ? (
+          <Link href={`/manage-group?groupId=${group.id}`} className="p-2 rounded-full bg-black text-white hover:bg-gray-800">
+            <Settings size={18} />
+          </Link>
+        ) : (
+          <div className="w-9" />
+        )}
+      </div>
+
+      {/* Pace Status Banner */}
+      <div className="bg-black text-white p-5 rounded-xl space-y-4 shadow-md">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-black tracking-tight">{groupName}</h1>
-            <p className="text-xs font-bold text-gray-400">
-              {region} {ao && ao !== 'N/A' ? `• ${ao}` : ''}
-            </p>
+            <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Active Track</span>
+            <h2 className="text-xl font-black">{study.title}</h2>
           </div>
-          <Link
-            href={`/manage-group?groupId=${groupId}`}
-            className="relative bg-white/10 text-white hover:bg-white hover:text-black border border-white/20 text-xs font-bold px-3 py-1.5 rounded flex items-center gap-1.5 transition-colors"
-          >
-            <Settings size={14} /> Manage
-            {pendingCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-black animate-pulse">
-                {pendingCount}
-              </span>
-            )}
-          </Link>
+          <span className="bg-gray-800 text-gray-200 text-xs font-bold px-2.5 py-1 rounded-md flex items-center gap-1">
+            <Calendar size={12} /> Day {targetDay} of {study.total_days}
+          </span>
         </div>
 
-        <div className="pt-2 border-t border-gray-800 flex justify-between items-center text-xs font-bold">
-          <span className="text-gray-400">Track: Being HIM (14 Days)</span>
+        <div className="pt-3 border-t border-gray-800 flex justify-between items-center">
+          <div className="text-xs">
+            <p className="text-gray-400 font-bold text-[10px] uppercase">Your Status</p>
+            {daysBehind <= 0 ? (
+              <p className="text-green-400 font-black flex items-center gap-1">
+                <CheckCircle2 size={14} /> Caught Up!
+              </p>
+            ) : (
+              <p className="text-amber-400 font-black flex items-center gap-1">
+                <AlertCircle size={14} /> {daysBehind} {daysBehind === 1 ? 'Day' : 'Days'} Behind
+              </p>
+            )}
+          </div>
+
           <Link
-            href={`/study?day=1&group_id=${groupId}`}
-            className="bg-white text-black px-3 py-1.5 rounded flex items-center gap-1"
+            href={`/study?day=${userNextDay}`}
+            className="bg-white text-black font-black text-xs px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-1.5"
           >
-            <BookOpen size={14} /> Read Today
+            Read Day {userNextDay} <BookOpen size={14} />
           </Link>
         </div>
       </div>
 
-      {/* ACCOUNTABILITY GRID BOARD */}
-      <section className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-3">
-        <h2 className="text-sm font-black uppercase tracking-wide text-gray-700 flex items-center gap-1.5">
-          <Shield size={16} className="text-black" /> Accountability Grid
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="py-2 text-[10px] font-black text-gray-400 uppercase">Pax</th>
-                {Array.from({ length: 14 }).map((_, i) => (
-                  <th key={i} className="py-2 text-center text-[10px] font-black text-gray-400 uppercase w-6">
-                    D{i + 1}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {paxChecks.map((m, idx) => (
-                <tr key={idx}>
-                  <td className="py-2 pr-2 text-xs font-black text-gray-800 truncate max-w-[90px]">{m.f3Name}</td>
-                  {m.checks.map((done, dIdx) => (
-                    <td key={dIdx} className="py-2 text-center">
-                      {done ? (
-                        <span className="inline-flex items-center justify-center w-4 h-4 bg-green-600 text-white text-[10px] rounded-full">
-                          <Check size={10} strokeWidth={3} />
+      {/* Accountability Grid */}
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider">Accountability Grid</h3>
+          <span className="text-xs font-bold text-gray-400">
+            {completedDays.length} / {study.total_days} Done
+          </span>
+        </div>
+
+        <div className="grid grid-cols-7 gap-2">
+          {Array.from({ length: study.total_days }, (_, i) => i + 1).map((dayNum) => {
+            const isDone = completedDays.includes(dayNum);
+            const isTodayTarget = dayNum === targetDay;
+
+            const dayDate = new Date(startDate);
+            dayDate.setDate(startDate.getDate() + (dayNum - 1));
+            const dateLabel = `${dayDate.getMonth() + 1}/${dayDate.getDate()}`;
+
+            return (
+              <Link
+                key={dayNum}
+                href={`/study?day=${dayNum}`}
+                className={`p-3 rounded-lg border text-center flex items-center justify-center transition-all ${
+                  isDone
+                    ? 'bg-green-700 text-white border-green-800'
+                    : isTodayTarget
+                    ? 'bg-black text-white border-black ring-2 ring-black ring-offset-2'
+                    : 'bg-white text-gray-900 border-gray-200 hover:border-gray-400'
+                }`}
+              >
+                <span className="text-sm font-black">{dateLabel}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Group Discussion Feed with Threading & Tagging */}
+      <div className="space-y-4 pt-4 border-t border-gray-200">
+        <div className="flex items-center gap-2">
+          <MessageSquare size={18} className="text-black" />
+          <h3 className="text-sm font-black uppercase tracking-wider">Group Discussion</h3>
+        </div>
+
+        {/* Input Form with @ Tag Autocomplete */}
+        <div className="relative">
+          {showMentionBox && filteredMembers.length > 0 && (
+            <div className="absolute bottom-12 left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-lg z-20 max-h-36 overflow-y-auto p-1">
+              {filteredMembers.map((m) => (
+                <button
+                  key={m.user_id}
+                  onClick={() => selectMention(m.profiles?.f3_name || 'Pax')}
+                  className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 rounded flex justify-between"
+                >
+                  <span>{m.profiles?.f3_name || m.profiles?.real_name}</span>
+                  <span className="text-[10px] text-gray-400">({m.profiles?.region})</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newComment}
+              onChange={(e) => handleInputChange(e.target.value)}
+              placeholder="Share an insight or tag @Pax..."
+              className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-xs bg-white focus:ring-black focus:border-black"
+            />
+            <button
+              onClick={() => handlePostComment(null, newComment)}
+              disabled={!newComment.trim()}
+              className="bg-black text-white px-4 py-2.5 rounded-lg text-xs font-bold hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1"
+            >
+              <Send size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Threaded Comment Feed */}
+        <div className="space-y-4">
+          {topLevelComments.length === 0 ? (
+            <p className="text-center text-xs text-gray-400 py-6">
+              No comments yet. Be the first Pax to post!
+            </p>
+          ) : (
+            topLevelComments.map((comment) => {
+              const replies = comments.filter((c) => c.parent_id === comment.id);
+
+              return (
+                <div
+                  key={comment.id}
+                  className={`p-4 rounded-xl border space-y-2.5 ${
+                    comment.is_pinned
+                      ? 'bg-amber-50 border-amber-300 shadow-sm'
+                      : 'bg-white border-gray-200'
+                  }`}
+                >
+                  {/* Header */}
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-xs font-black">
+                        {comment.profiles?.f3_name || comment.profiles?.real_name || 'Pax'}
+                        <span className="text-[10px] text-gray-500 font-normal ml-1">
+                          ({comment.profiles?.region || group.region})
                         </span>
-                      ) : (
-                        <span className="inline-flex items-center justify-center w-4 h-4 bg-gray-100 text-gray-300 text-[10px] rounded-full">
-                          ·
+                      </span>
+                      {comment.is_pinned && (
+                        <span className="ml-2 bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded flex-inline items-center gap-0.5">
+                          <Pin size={10} /> PINNED ANNOUNCEMENT
                         </span>
                       )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                    </div>
 
-      {/* DISCUSSION FEED */}
-      <section className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-4">
-        <h2 className="text-sm font-black uppercase tracking-wide text-gray-700 flex items-center gap-2">
-          <MessageSquare size={16} /> Group Discussion
-        </h2>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-gray-400">
+                        {new Date(comment.created_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+                      </span>
+                      {isQ && (
+                        <button
+                          onClick={() => togglePin(comment.id, comment.is_pinned)}
+                          className="text-gray-400 hover:text-black"
+                        >
+                          <Pin size={12} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-        <form onSubmit={handlePostComment} className="space-y-2">
-          <textarea
-            rows={2}
-            value={newComment}
-            onChange={(e) => setNewComment(e.target.value)}
-            placeholder="Share an insight with the group..."
-            className="w-full p-3 border border-gray-300 rounded text-xs focus:ring-black focus:border-black"
-          />
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full bg-black text-white font-bold py-2 rounded text-xs flex items-center justify-center gap-1 active:bg-gray-800 disabled:opacity-50"
-          >
-            <Send size={14} /> Post Insight
-          </button>
-        </form>
+                  {/* Body */}
+                  <p className="text-xs text-gray-800 leading-relaxed">{comment.content}</p>
 
-        <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-          {comments.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-4">No comments posted yet. Start the conversation!</p>
-          ) : (
-            comments.map((c) => (
-              <div key={c.id} className="p-3 bg-gray-50 border border-gray-200 rounded text-xs space-y-1">
-                <div className="flex justify-between items-center font-bold">
-                  <span className="text-gray-900">{c.user_name || 'Pax'}</span>
-                  <span className="text-gray-400 font-normal text-[10px]">
-                    {new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+                  {/* Emoji Tapback Bar */}
+                  <div className="flex items-center gap-1.5 pt-1">
+                    {['👍', '🙏', '💪', '🎯'].map((emoji) => {
+                      const count = comment.reactions?.[emoji] || 0;
+                      return (
+                        <button
+                          key={emoji}
+                          onClick={() => toggleReaction(comment.id, emoji)}
+                          className={`text-xs px-2 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1 transition-colors ${
+                            count > 0 ? 'bg-gray-100 border-gray-400 text-black' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                          }`}
+                        >
+                          <span>{emoji}</span>
+                          {count > 0 && <span>{count}</span>}
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)}
+                      className="text-[11px] font-bold text-gray-500 hover:text-black ml-auto"
+                    >
+                      Reply
+                    </button>
+                  </div>
+
+                  {/* Inline Reply Input */}
+                  {replyingToId === comment.id && (
+                    <div className="flex gap-2 pt-2 border-t border-gray-100">
+                      <input
+                        type="text"
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        placeholder="Write a reply..."
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-black"
+                      />
+                      <button
+                        onClick={() => handlePostComment(comment.id, replyText)}
+                        disabled={!replyText.trim()}
+                        className="bg-black text-white px-3 py-2 rounded-lg text-xs font-bold disabled:opacity-50"
+                      >
+                        Send
+                      </button>
+                    </div>
+                  )}
+
+                  {/* 1-Level Threaded Replies */}
+                  {replies.length > 0 && (
+                    <div className="space-y-2 pt-2 pl-4 border-l-2 border-gray-200">
+                      {replies.map((reply) => (
+                        <div key={reply.id} className="bg-gray-50 p-2.5 rounded-lg text-xs space-y-1">
+                          <div className="flex justify-between items-center">
+                            <span className="font-black text-[11px]">
+                              {reply.profiles?.f3_name || reply.profiles?.real_name}
+                              <span className="text-[9px] text-gray-400 font-normal ml-1">
+                                ({reply.profiles?.region})
+                              </span>
+                            </span>
+                            <span className="text-[9px] text-gray-400">
+                              {new Date(reply.created_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
+                            </span>
+                          </div>
+                          <p className="text-gray-700 leading-snug">{reply.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <p className="text-gray-700 leading-normal">{c.content}</p>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
-      </section>
+      </div>
     </main>
   );
 }
