@@ -3,7 +3,7 @@
 import { useEffect, useState, use } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { BookOpen, CheckCircle2, AlertCircle, Calendar, ArrowLeft, Settings, Send, MessageSquare, Pin, ThumbsUp, Heart, Target, Flame } from 'lucide-react';
+import { BookOpen, CheckCircle2, AlertCircle, Calendar, ArrowLeft, Settings, Send, MessageSquare, Pin, Check, X } from 'lucide-react';
 
 interface GroupData {
   id: string;
@@ -28,6 +28,12 @@ interface Member {
   };
 }
 
+interface AccountabilityRecord {
+  user_id: string;
+  day_number: number;
+  completed: boolean;
+}
+
 interface Comment {
   id: string;
   parent_id: string | null;
@@ -50,7 +56,7 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
   const [group, setGroup] = useState<GroupData | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [completedDays, setCompletedDays] = useState<number[]>([]);
+  const [accountabilityData, setAccountabilityData] = useState<AccountabilityRecord[]>([]);
   
   // Discussion state
   const [comments, setComments] = useState<Comment[]>([]);
@@ -78,20 +84,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
       if (groupData) {
         setGroup(groupData as any);
 
-        if (user) {
-          const { data: accountability } = await supabase
-            .from('accountability')
-            .select('day_number')
-            .eq('group_id', groupId)
-            .eq('user_id', user.id)
-            .eq('completed', true);
-
-          if (accountability) {
-            setCompletedDays(accountability.map((a) => a.day_number));
-          }
-        }
-
-        // Fetch Group Members for @ tagging
         const { data: memberData } = await supabase
           .from('group_members')
           .select('user_id, profiles(f3_name, real_name, region)')
@@ -99,6 +91,15 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
           .eq('status', 'approved');
 
         if (memberData) setMembers(memberData as any);
+
+        const { data: accountabilityList } = await supabase
+          .from('accountability')
+          .select('user_id, day_number, completed')
+          .eq('group_id', groupId);
+
+        if (accountabilityList) {
+          setAccountabilityData(accountabilityList);
+        }
 
         fetchComments();
       }
@@ -120,7 +121,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
       .order('created_at', { ascending: false });
 
     if (commentList) {
-      // Fetch reactions for these comments
       const commentIds = commentList.map((c) => c.id);
       if (commentIds.length > 0) {
         const { data: reactionsData } = await supabase
@@ -183,7 +183,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
       .single();
 
     if (!error && newPost) {
-      // Parse @ tags and trigger notifications
       const matches = contentText.match(/@(\w+)/g);
       if (matches) {
         const taggedNames = matches.map((m) => m.slice(1).toLowerCase());
@@ -228,7 +227,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
     ]);
 
     if (error) {
-      // Remove reaction if already toggled
       await supabase
         .from('comment_reactions')
         .delete()
@@ -255,16 +253,28 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
   const rawDiffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
   const targetDay = Math.max(1, Math.min(rawDiffDays + 1, study.total_days));
 
-  const maxCompletedDay = completedDays.length > 0 ? Math.max(...completedDays) : 0;
+  const userCompletedDays = accountabilityData
+    .filter((a) => a.user_id === currentUserId && a.completed)
+    .map((a) => a.day_number);
+  const maxCompletedDay = userCompletedDays.length > 0 ? Math.max(...userCompletedDays) : 0;
   const daysBehind = targetDay - maxCompletedDay;
   const userNextDay = daysBehind > 0 ? Math.min(maxCompletedDay + 1, study.total_days) : targetDay;
 
   const isQ = currentUserId === group.q_id;
   const topLevelComments = comments.filter((c) => !c.parent_id);
-
   const filteredMembers = members.filter((m) =>
     (m.profiles?.f3_name || '').toLowerCase().includes(mentionSearch)
   );
+
+  const daysArray = Array.from({ length: study.total_days }, (_, i) => {
+    const dayNum = i + 1;
+    const d = new Date(startDate);
+    d.setDate(d.getDate() + i);
+    return {
+      dayNumber: dayNum,
+      dateString: `${d.getMonth() + 1}/${d.getDate()}`
+    };
+  });
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
@@ -318,51 +328,104 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* Accountability Grid */}
+      {/* 1. Personal Date Boxes */}
       <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider">Accountability Grid</h3>
-          <span className="text-xs font-bold text-gray-400">
-            {completedDays.length} / {study.total_days} Done
-          </span>
-        </div>
+        <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider">Your Reading Schedule</h3>
+        <div className="grid grid-cols-7 gap-1.5">
+          {daysArray.map((d) => {
+            const isDone = userCompletedDays.includes(d.dayNumber);
+            const isPastOrToday = d.dayNumber <= targetDay;
 
-        <div className="grid grid-cols-7 gap-2">
-          {Array.from({ length: study.total_days }, (_, i) => i + 1).map((dayNum) => {
-            const isDone = completedDays.includes(dayNum);
-            const isTodayTarget = dayNum === targetDay;
-
-            const dayDate = new Date(startDate);
-            dayDate.setDate(startDate.getDate() + (dayNum - 1));
-            const dateLabel = `${dayDate.getMonth() + 1}/${dayDate.getDate()}`;
+            const bgClass = isDone 
+              ? 'bg-green-700 text-white border-green-800 hover:bg-green-800' 
+              : isPastOrToday 
+              ? 'bg-red-600 text-white border-red-700 hover:bg-red-700' 
+              : 'bg-white text-gray-900 border-gray-200 hover:border-gray-400';
 
             return (
               <Link
-                key={dayNum}
-                href={`/study?day=${dayNum}`}
-                className={`p-3 rounded-lg border text-center flex items-center justify-center transition-all ${
-                  isDone
-                    ? 'bg-green-700 text-white border-green-800'
-                    : isTodayTarget
-                    ? 'bg-black text-white border-black ring-2 ring-black ring-offset-2'
-                    : 'bg-white text-gray-900 border-gray-200 hover:border-gray-400'
-                }`}
+                key={d.dayNumber}
+                href={`/study?day=${d.dayNumber}`}
+                className={`p-2 rounded-lg border text-center flex items-center justify-center transition-all shadow-sm ${bgClass}`}
+                title={`Day ${d.dayNumber} - ${d.dateString}`}
               >
-                <span className="text-sm font-black">{dateLabel}</span>
+                <span className="text-xs font-black">{d.dateString}</span>
               </Link>
             );
           })}
         </div>
       </div>
 
-      {/* Group Discussion Feed with Threading & Tagging */}
+      {/* 2. Accountability Grid Table with Frozen PAX Column */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
+        <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+          <h3 className="text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+            <Calendar size={14} /> Accountability Grid
+          </h3>
+          <span className="text-[10px] font-bold text-gray-400">Group Progress</span>
+        </div>
+
+        <div className="overflow-x-auto relative">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-gray-200 text-gray-400">
+                <th className="py-2 pr-4 font-black text-[11px] uppercase sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                  PAX
+                </th>
+                {daysArray.map((d) => (
+                  <th key={d.dayNumber} className="py-2 px-2 text-center font-bold text-[10px] whitespace-nowrap">
+                    {d.dateString}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {members.map((member) => {
+                const memberName = member.profiles?.f3_name || member.profiles?.real_name || 'Pax';
+
+                return (
+                  <tr key={member.user_id}>
+                    <td className="py-2.5 pr-4 font-black text-gray-900 whitespace-nowrap sticky left-0 bg-white z-10 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
+                      {memberName} {member.user_id === currentUserId && <span className="text-[9px] font-normal text-gray-400">(You)</span>}
+                    </td>
+                    {daysArray.map((d) => {
+                      const record = accountabilityData.find(
+                        (a) => a.user_id === member.user_id && a.day_number === d.dayNumber
+                      );
+                      const isDone = record?.completed;
+                      const isPastOrToday = d.dayNumber <= targetDay;
+
+                      return (
+                        <td key={d.dayNumber} className="py-2.5 px-2 text-center whitespace-nowrap">
+                          {isDone ? (
+                            <span className="inline-flex items-center justify-center w-5 h-5 bg-green-100 text-green-700 rounded-full mx-auto">
+                              <Check size={12} strokeWidth={3} />
+                            </span>
+                          ) : isPastOrToday ? (
+                            <span className="inline-flex items-center justify-center w-5 h-5 bg-red-100 text-red-600 rounded-full mx-auto">
+                              <X size={12} strokeWidth={3} />
+                            </span>
+                          ) : (
+                            <span className="text-gray-300">-</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Group Discussion Feed */}
       <div className="space-y-4 pt-4 border-t border-gray-200">
         <div className="flex items-center gap-2">
           <MessageSquare size={18} className="text-black" />
           <h3 className="text-sm font-black uppercase tracking-wider">Group Discussion</h3>
         </div>
 
-        {/* Input Form with @ Tag Autocomplete */}
         <div className="relative">
           {showMentionBox && filteredMembers.length > 0 && (
             <div className="absolute bottom-12 left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-lg z-20 max-h-36 overflow-y-auto p-1">
@@ -397,7 +460,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
-        {/* Threaded Comment Feed */}
         <div className="space-y-4">
           {topLevelComments.length === 0 ? (
             <p className="text-center text-xs text-gray-400 py-6">
@@ -416,7 +478,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
                       : 'bg-white border-gray-200'
                   }`}
                 >
-                  {/* Header */}
                   <div className="flex justify-between items-start">
                     <div>
                       <span className="text-xs font-black">
@@ -426,7 +487,7 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
                         </span>
                       </span>
                       {comment.is_pinned && (
-                        <span className="ml-2 bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded flex-inline items-center gap-0.5">
+                        <span className="ml-2 bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded inline-flex items-center gap-0.5">
                           <Pin size={10} /> PINNED ANNOUNCEMENT
                         </span>
                       )}
@@ -447,10 +508,8 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
                     </div>
                   </div>
 
-                  {/* Body */}
                   <p className="text-xs text-gray-800 leading-relaxed">{comment.content}</p>
 
-                  {/* Emoji Tapback Bar */}
                   <div className="flex items-center gap-1.5 pt-1">
                     {['👍', '🙏', '💪', '🎯'].map((emoji) => {
                       const count = comment.reactions?.[emoji] || 0;
@@ -476,7 +535,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
                     </button>
                   </div>
 
-                  {/* Inline Reply Input */}
                   {replyingToId === comment.id && (
                     <div className="flex gap-2 pt-2 border-t border-gray-100">
                       <input
@@ -496,7 +554,6 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
                     </div>
                   )}
 
-                  {/* 1-Level Threaded Replies */}
                   {replies.length > 0 && (
                     <div className="space-y-2 pt-2 pl-4 border-l-2 border-gray-200">
                       {replies.map((reply) => (

@@ -1,110 +1,17 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { 
-  ChevronDown, 
-  ChevronUp, 
-  CheckCircle2, 
-  Circle, 
-  ArrowLeft, 
-  MessageSquare, 
-  Send, 
-  Bot, 
-  ExternalLink,
-  BookOpen
-} from 'lucide-react';
+import { CheckCircle2, Circle, ArrowLeft, ExternalLink } from 'lucide-react';
+import { StudyAccordions } from './StudyAccordions';
+import { StudyDiscussion } from './StudyDiscussion';
+import { STUDY_CONTENT } from '@/lib/studiesData';
 
-interface Member {
-  user_id: string;
-  profiles: {
-    f3_name: string;
-    real_name: string;
-    region: string;
-  };
-}
 
-interface Comment {
-  id: string;
-  parent_id: string | null;
-  content: string;
-  created_at: string;
-  user_id: string;
-  profiles: {
-    f3_name: string;
-    real_name: string;
-    region: string;
-  };
-  reactions?: Record<string, number>;
-}
-
-interface StudyDayData {
-  book: string;
-  chapter: number;
-  verseRef: string;
-  title: string;
-  verses: { num: number; text: string }[];
-  context: string;
-  himConnection: string;
-  wordStudy: {
-    originalWord: string;
-    transliteration: string;
-    meaning: string;
-    breakdown: string;
-  };
-}
-
-const STUDY_CONTENT: Record<string, Record<number, StudyDayData>> = {
-  'being-him': {
-    1: {
-      book: 'Proverbs',
-      chapter: 27,
-      verseRef: 'PROVERBS 27:14-19 (ESV)',
-      title: 'Sharpening in the Gloom',
-      verses: [
-        { num: 14, text: 'Whoever blesses his neighbor with a loud voice, rising early in the morning, will be counted as cursing.' },
-        { num: 15, text: 'A continual dripping on a rainy day and a quarrelsome wife are alike;' },
-        { num: 16, text: 'to restrain her is to restrain the wind or to grasp oil in one’s right hand.' },
-        { num: 17, text: 'Iron sharpens iron, and one man sharpens another.' },
-        { num: 18, text: 'Whoever tends a fig tree will eat its fruit, and he who guards his master will be honored.' },
-        { num: 19, text: 'As in water face reflects face, so the heart of man reflects man.' }
-      ],
-      context: 'Solomon collected these proverbs to teach practical wisdom for daily life in ancient Israel. Verse 17 uses commonplace physical tools—iron blades—to describe how personal relationships work.',
-      himConnection: 'True leadership requires putting yourself in proximity with other men who will hold you accountable, remove dullness, and challenge you to grow.',
-      wordStudy: {
-        originalWord: 'יַחַד',
-        transliteration: 'Yachad',
-        meaning: 'To unite, join together, or sharpen mutually.',
-        breakdown: 'Refers to two edges striking together. Sharpening cannot happen in isolation; it requires intentional friction and contact.'
-      }
-    }
-  },
-  'godly-man': {
-    1: {
-      book: '1 Corinthians',
-      chapter: 16,
-      verseRef: '1 CORINTHIANS 16:13-14 (ESV)',
-      title: 'Be Watchful, Stand Firm',
-      verses: [
-        { num: 13, text: 'Be watchful, stand firm in the faith, act like men, be strong.' },
-        { num: 14, text: 'Let all that you do be done in love.' }
-      ],
-      context: 'Paul is closing his first letter to the church in Corinth, a city full of cultural distractions and division. He issues short, military-style commands to keep the believers grounded.',
-      himConnection: 'Strength without love leads to harshness, while love without strength leads to compromise. A high-impact leader balances vigilant conviction with genuine care for others.',
-      wordStudy: {
-        originalWord: 'ἀνδρίζομαι',
-        transliteration: 'Andrizomai',
-        meaning: 'To act courageously, show mature manhood, or conduct oneself with bravery.',
-        breakdown: 'A call to spiritual maturity and steady resolve in the face of pressure.'
-      }
-    }
-  }
-};
 
 function StudyContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const dayParam = searchParams.get('day');
   const studyParam = searchParams.get('study') || 'being-him';
@@ -113,19 +20,9 @@ function StudyContent() {
   const [userId, setUserId] = useState<string | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
   const [userRegion, setUserRegion] = useState<string>('F3 Jacksonville');
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
   const [isCompleted, setIsCompleted] = useState(false);
-
-  const [showHimConnection, setShowHimConnection] = useState(false);
-  const [showContext, setShowContext] = useState(false);
-  const [showWordStudy, setShowWordStudy] = useState(false);
-
-  const [comments, setComments] = useState<Comment[]>([]);
-  const [newComment, setNewComment] = useState('');
-  const [replyingToId, setReplyingToId] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState('');
-  const [mentionSearch, setMentionSearch] = useState('');
-  const [showMentionBox, setShowMentionBox] = useState(false);
+  const [comments, setComments] = useState<any[]>([]);
 
   const currentStudy = STUDY_CONTENT[studyParam] || STUDY_CONTENT['being-him'];
   const dayData = currentStudy[dayNumber] || currentStudy[1];
@@ -137,11 +34,7 @@ function StudyContent() {
       if (!user) return;
       setUserId(user.id);
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('region')
-        .eq('id', user.id)
-        .single();
+      const { data: profile } = await supabase.from('profiles').select('region').eq('id', user.id).single();
       if (profile?.region) setUserRegion(profile.region);
 
       const { data: membership } = await supabase
@@ -171,8 +64,7 @@ function StudyContent() {
           .eq('group_id', membership.group_id)
           .eq('status', 'approved');
 
-        if (memberData) setMembers(memberData as any);
-
+        if (memberData) setMembers(memberData);
         fetchComments(membership.group_id);
       }
     }
@@ -183,21 +75,14 @@ function StudyContent() {
   const fetchComments = async (activeGroupId: string) => {
     const { data: commentList } = await supabase
       .from('group_comments')
-      .select(`
-        id, parent_id, content, created_at, user_id,
-        profiles (f3_name, real_name, region)
-      `)
+      .select('id, parent_id, content, created_at, user_id, profiles(f3_name, real_name, region)')
       .eq('group_id', activeGroupId)
       .order('created_at', { ascending: false });
 
     if (commentList) {
       const commentIds = commentList.map((c) => c.id);
       if (commentIds.length > 0) {
-        const { data: reactionsData } = await supabase
-          .from('comment_reactions')
-          .select('comment_id, emoji')
-          .in('comment_id', commentIds);
-
+        const { data: reactionsData } = await supabase.from('comment_reactions').select('comment_id, emoji').in('comment_id', commentIds);
         const reactionMap: Record<string, Record<string, number>> = {};
         if (reactionsData) {
           reactionsData.forEach((r: any) => {
@@ -205,431 +90,105 @@ function StudyContent() {
             reactionMap[r.comment_id][r.emoji] = (reactionMap[r.comment_id][r.emoji] || 0) + 1;
           });
         }
-
-        setComments(
-          commentList.map((c: any) => ({
-            ...c,
-            reactions: reactionMap[c.id] || {},
-          }))
-        );
+        setComments(commentList.map((c: any) => ({ ...c, reactions: reactionMap[c.id] || {} })));
       } else {
-        setComments(commentList as any);
+        setComments(commentList);
       }
     }
   };
 
-  const handleInputChange = (value: string) => {
-    setNewComment(value);
-    const lastWord = value.split(' ').pop() || '';
-    if (lastWord.startsWith('@')) {
-      setMentionSearch(lastWord.slice(1).toLowerCase());
-      setShowMentionBox(true);
-    } else {
-      setShowMentionBox(false);
-    }
-  };
-
-  const selectMention = (f3Name: string) => {
-    const words = newComment.split(' ');
-    words.pop();
-    setNewComment([...words, `@${f3Name} `].join(' '));
-    setShowMentionBox(false);
-  };
-
   const toggleCompletion = async () => {
-    if (!userId || !groupId) return;
+    if (!userId) return;
+    if (!groupId) {
+      alert('Please join an F3 study group from the Discovery Hub to track accountability.');
+      return;
+    }
 
     const nextState = !isCompleted;
     setIsCompleted(nextState);
 
-    await supabase.from('accountability').upsert(
-      [
-        {
-          group_id: groupId,
-          user_id: userId,
-          day_number: dayNumber,
-          completed: nextState,
-        },
-      ],
-      { onConflict: 'group_id, user_id, day_number' }
-    );
-  };
-
-  const handlePostComment = async (parentId: string | null = null, contentText: string) => {
-    if (!contentText.trim() || !userId || !groupId) return;
-
-    const formattedContent = parentId ? contentText.trim() : `[Day ${dayNumber}] ${contentText.trim()}`;
-
-    const { data: newPost, error } = await supabase
-      .from('group_comments')
-      .insert([
-        {
-          group_id: groupId,
-          user_id: userId,
-          parent_id: parentId,
-          content: formattedContent,
-        },
-      ])
-      .select()
+    const { data: existing } = await supabase
+      .from('accountability')
+      .select('id')
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .eq('day_number', dayNumber)
       .single();
 
-    if (!error && newPost) {
-      const matches = contentText.match(/@(\w+)/g);
-      if (matches) {
-        const taggedNames = matches.map((m) => m.slice(1).toLowerCase());
-        const taggedMembers = members.filter((m) =>
-          taggedNames.includes((m.profiles?.f3_name || '').toLowerCase())
-        );
-
-        for (const tagged of taggedMembers) {
-          if (tagged.user_id !== userId) {
-            await supabase.from('notifications').insert([
-              {
-                user_id: tagged.user_id,
-                sender_id: userId,
-                group_id: groupId,
-                comment_id: newPost.id,
-                day_number: dayNumber,
-              },
-            ]);
-          }
-        }
-      }
-
-      setNewComment('');
-      setReplyText('');
-      setReplyingToId(null);
-      fetchComments(groupId);
+    let error;
+    if (existing) {
+      const res = await supabase.from('accountability').update({ completed: nextState }).eq('id', existing.id);
+      error = res.error;
+    } else {
+      const res = await supabase.from('accountability').insert([{ group_id: groupId, user_id: userId, day_number: dayNumber, completed: nextState }]);
+      error = res.error;
     }
-  };
-
-  const toggleReaction = async (commentId: string, emoji: string) => {
-    if (!userId || !groupId) return;
-
-    const { error } = await supabase.from('comment_reactions').insert([
-      { comment_id: commentId, user_id: userId, emoji },
-    ]);
 
     if (error) {
-      await supabase
-        .from('comment_reactions')
-        .delete()
-        .eq('comment_id', commentId)
-        .eq('user_id', userId)
-        .eq('emoji', emoji);
+      console.error('Error saving accountability:', error.message);
+      setIsCompleted(!nextState);
     }
-    fetchComments(groupId);
   };
 
   const backHref = groupId ? `/group/${groupId}` : '/group';
-  const topLevelComments = comments.filter((c) => !c.parent_id);
-  const filteredMembers = members.filter((m) =>
-    (m.profiles?.f3_name || '').toLowerCase().includes(mentionSearch)
-  );
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      {/* Header Bar with Study Switcher */}
-      <div className="flex justify-between items-center gap-2">
+      {/* Header */}
+      <div className="flex justify-between items-center">
         <Link href={backHref} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
           <ArrowLeft size={18} />
         </Link>
-        
-        {/* Dynamic Study Selector */}
-        <select
-          value={studyParam}
-          onChange={(e) => router.push(`/study?study=${e.target.value}&day=1`)}
-          className="bg-gray-100 text-xs font-black uppercase tracking-wider text-gray-800 py-1.5 px-2.5 rounded-lg border-none focus:ring-black cursor-pointer"
-        >
-          <option value="being-him">BEING HIM (14D)</option>
-          <option value="godly-man">GODLY MAN (7D)</option>
-        </select>
-
-        <span className="bg-black text-white text-xs font-bold px-2.5 py-1 rounded-md shrink-0">
-          Day {dayNumber}
+        <span className="text-xs font-black uppercase tracking-widest text-gray-500">
+          {studyParam === 'godly-man' ? 'Godly Man' : 'Being HIM'}
         </span>
+        <span className="bg-black text-white text-xs font-bold px-2.5 py-1 rounded-md">Day {dayNumber}</span>
       </div>
 
-      {/* 1. Scripture Card with Full Context Verses */}
+      {/* 1. Scripture Card */}
       <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
         <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
           <div>
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-              {dayData.verseRef}
-            </span>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{dayData.verseRef} (ESV)</span>
             <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}</h2>
           </div>
-          <a
-            href={esvChapterUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0"
-          >
+          <a href={esvChapterUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0">
             Full Chapter <ExternalLink size={12} />
           </a>
         </div>
-
-        {/* Render Multiple Verses */}
-        <div className="text-sm font-serif leading-relaxed text-gray-900 space-y-2">
-          {dayData.verses.map((v) => (
-            <p key={v.num}>
-              <sup className="font-sans text-[10px] font-bold mr-1 text-gray-400">{v.num}</sup>
-              {v.text}
-            </p>
-          ))}
-        </div>
-
-        {/* Required ESV Copyright Notice */}
-        <div className="pt-3 border-t border-gray-100 space-y-2 text-[10px] text-gray-400 leading-normal">
-          <p>
-            Scripture quotations marked "ESV" are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved. The ESV text may not be quoted in any publication made available to the public by a Creative Commons license. The ESV may not be translated into any other language.
-          </p>
-          <div className="flex justify-between items-center italic pt-1">
-            <span>Users may not copy or download more than 500 verses of the ESV Bible.</span>
-            <a
-              href={esvChapterUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="not-italic font-bold underline hover:text-gray-600 shrink-0 ml-2"
-            >
-              esv.org
-            </a>
-          </div>
+        <p className="text-sm font-serif leading-relaxed text-gray-900">{dayData.summary}</p>
+        <div className="pt-2 text-[10px] text-gray-400 italic">
+          Read the full passage in context on <a href={esvChapterUrl} target="_blank" rel="noopener noreferrer" className="underline font-bold">esv.org</a>.
         </div>
       </div>
 
-      {/* 2. HIM Connection */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <button
-          onClick={() => setShowHimConnection(!showHimConnection)}
-          className="w-full p-4 flex justify-between items-center text-left hover:bg-gray-50 transition-colors"
-        >
-          <span className="font-black text-sm text-gray-900">HIM Connection</span>
-          {showHimConnection ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
-
-        {showHimConnection && (
-          <div className="p-4 pt-0 border-t border-gray-100 space-y-3">
-            <p className="text-xs text-gray-700 leading-relaxed">
-              {dayData.himConnection}
-            </p>
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 italic pt-2 border-t border-gray-100">
-              <Bot size={12} className="shrink-0" />
-              <span>Devotional content generated by AI. The best reference for the Bible is the Bible.</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. What's Happening Here? (Context Accordion) */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <button
-          onClick={() => setShowContext(!showContext)}
-          className="w-full p-4 flex justify-between items-center text-left hover:bg-gray-50 transition-colors"
-        >
-          <div className="flex items-center gap-2">
-            <BookOpen size={16} className="text-gray-500" />
-            <span className="font-black text-sm text-gray-900">What's Happening Here?</span>
-          </div>
-          {showContext ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
-
-        {showContext && (
-          <div className="p-4 pt-0 border-t border-gray-100 space-y-3">
-            <p className="text-xs text-gray-700 leading-relaxed">
-              {dayData.context}
-            </p>
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 italic pt-2 border-t border-gray-100">
-              <Bot size={12} className="shrink-0" />
-              <span>Devotional content generated by AI. The best reference for the Bible is the Bible.</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 4. Deep Word Study */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <button
-          onClick={() => setShowWordStudy(!showWordStudy)}
-          className="w-full p-4 flex justify-between items-center text-left hover:bg-gray-50 transition-colors"
-        >
-          <span className="font-black text-sm text-gray-900">Deep Word Study</span>
-          {showWordStudy ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </button>
-
-        {showWordStudy && (
-          <div className="p-4 pt-0 border-t border-gray-100 space-y-3">
-            <div className="text-xs text-gray-700 leading-relaxed space-y-2">
-              <p>
-                <strong>Original Word:</strong> <em className="font-serif">{dayData.wordStudy.transliteration}</em> ({dayData.wordStudy.originalWord}) – {dayData.wordStudy.meaning}
-              </p>
-              <p>{dayData.wordStudy.breakdown}</p>
-            </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 italic pt-2 border-t border-gray-100">
-              <Bot size={12} className="shrink-0" />
-              <span>Devotional content generated by AI. The best reference for the Bible is the Bible.</span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 5. Private Group Discussion Board */}
-      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
-          <MessageSquare size={16} className="text-black" />
-          <h3 className="text-xs font-black uppercase tracking-wider">Group Discussion</h3>
-        </div>
-
-        {/* Input Form with @ Tag Autocomplete */}
-        <div className="relative">
-          {showMentionBox && filteredMembers.length > 0 && (
-            <div className="absolute bottom-12 left-0 right-0 bg-white border border-gray-300 rounded-lg shadow-lg z-20 max-h-36 overflow-y-auto p-1">
-              {filteredMembers.map((m) => (
-                <button
-                  key={m.user_id}
-                  onClick={() => selectMention(m.profiles?.f3_name || 'Pax')}
-                  className="w-full text-left px-3 py-2 text-xs font-bold hover:bg-gray-100 rounded flex justify-between"
-                >
-                  <span>{m.profiles?.f3_name || m.profiles?.real_name}</span>
-                  <span className="text-[10px] text-gray-400">({m.profiles?.region})</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newComment}
-              onChange={(e) => handleInputChange(e.target.value)}
-              placeholder={`Comment on Day ${dayNumber} or tag @Pax...`}
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs bg-white focus:ring-black focus:border-black"
-            />
-            <button
-              onClick={() => handlePostComment(null, newComment)}
-              disabled={!newComment.trim()}
-              className="bg-black text-white px-3 py-2 rounded-lg text-xs font-bold hover:bg-gray-800 disabled:opacity-50 flex items-center gap-1"
-            >
-              <Send size={12} />
-            </button>
-          </div>
-        </div>
-
-        {/* Threaded Comment Feed */}
-        <div className="space-y-3">
-          {topLevelComments.length === 0 ? (
-            <p className="text-center text-[11px] text-gray-400 py-3">
-              No comments yet for Day {dayNumber}.
-            </p>
-          ) : (
-            topLevelComments.map((comment) => {
-              const replies = comments.filter((c) => c.parent_id === comment.id);
-
-              return (
-                <div key={comment.id} className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-xs space-y-2">
-                  <div className="flex justify-between items-center">
-                    <span className="font-black text-[11px]">
-                      {comment.profiles?.f3_name || comment.profiles?.real_name || 'Pax'}
-                      <span className="text-[9px] text-gray-400 font-normal ml-1">
-                        ({comment.profiles?.region || userRegion})
-                      </span>
-                    </span>
-                    <span className="text-[9px] text-gray-400">
-                      {new Date(comment.created_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
-                    </span>
-                  </div>
-                  <p className="text-gray-700 leading-snug">{comment.content}</p>
-
-                  <div className="flex items-center gap-1 pt-1">
-                    {['👍', '🙏', '💪', '🎯'].map((emoji) => {
-                      const count = comment.reactions?.[emoji] || 0;
-                      return (
-                        <button
-                          key={emoji}
-                          onClick={() => toggleReaction(comment.id, emoji)}
-                          className={`text-[10px] px-2 py-0.5 rounded border font-bold flex items-center gap-1 transition-colors ${
-                            count > 0 ? 'bg-white border-gray-400 text-black' : 'bg-gray-100 border-gray-200 text-gray-500'
-                          }`}
-                        >
-                          <span>{emoji}</span>
-                          {count > 0 && <span>{count}</span>}
-                        </button>
-                      );
-                    })}
-
-                    <button
-                      onClick={() => setReplyingToId(replyingToId === comment.id ? null : comment.id)}
-                      className="text-[10px] font-bold text-gray-500 hover:text-black ml-auto"
-                    >
-                      Reply
-                    </button>
-                  </div>
-
-                  {replyingToId === comment.id && (
-                    <div className="flex gap-2 pt-2 border-t border-gray-200">
-                      <input
-                        type="text"
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        placeholder="Write a reply..."
-                        className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-xs bg-white focus:ring-black"
-                      />
-                      <button
-                        onClick={() => handlePostComment(comment.id, replyText)}
-                        disabled={!replyText.trim()}
-                        className="bg-black text-white px-2.5 py-1.5 rounded text-xs font-bold disabled:opacity-50"
-                      >
-                        Send
-                      </button>
-                    </div>
-                  )}
-
-                  {replies.length > 0 && (
-                    <div className="space-y-1.5 pt-2 pl-3 border-l-2 border-gray-300">
-                      {replies.map((reply) => (
-                        <div key={reply.id} className="bg-white p-2 rounded text-xs space-y-0.5 border border-gray-100">
-                          <div className="flex justify-between items-center">
-                            <span className="font-black text-[10px]">
-                              {reply.profiles?.f3_name || reply.profiles?.real_name}
-                              <span className="text-[8px] text-gray-400 font-normal ml-1">
-                                ({reply.profiles?.region})
-                              </span>
-                            </span>
-                            <span className="text-[8px] text-gray-400">
-                              {new Date(reply.created_at).toLocaleDateString([], { month: 'numeric', day: 'numeric' })}
-                            </span>
-                          </div>
-                          <p className="text-gray-700 leading-snug">{reply.content}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* 6. Mark Completed Toggle Button */}
+      {/* 2. MARK AS COMPLETED BUTTON */}
       <button
         onClick={toggleCompletion}
         className={`w-full py-4 rounded-xl font-black text-sm tracking-wide transition-all shadow-md flex items-center justify-center gap-2 ${
-          isCompleted
-            ? 'bg-green-700 text-white hover:bg-green-800'
-            : 'bg-black text-white hover:bg-gray-800'
+          isCompleted ? 'bg-green-700 text-white hover:bg-green-800' : 'bg-black text-white hover:bg-gray-800'
         }`}
       >
-        {isCompleted ? (
-          <>
-            <CheckCircle2 size={20} /> COMPLETED
-          </>
-        ) : (
-          <>
-            <Circle size={20} /> MARK COMPLETED
-          </>
-        )}
+        {isCompleted ? <><CheckCircle2 size={20} /> COMPLETED</> : <><Circle size={20} /> MARK COMPLETED</>}
       </button>
+
+      {/* 3. Devotional Accordions */}
+      <StudyAccordions
+        himConnection={dayData.himConnection}
+        context={dayData.context}
+        wordStudy={dayData.wordStudy}
+      />
+
+      {/* 4. Group Discussion Board */}
+      <StudyDiscussion
+        dayNumber={dayNumber}
+        userId={userId}
+        groupId={groupId}
+        userRegion={userRegion}
+        members={members}
+        comments={comments}
+        onRefreshComments={fetchComments}
+      />
     </main>
   );
 }

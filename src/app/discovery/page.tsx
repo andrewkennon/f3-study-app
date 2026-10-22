@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { Search, Plus, MapPin, Users, Check, Clock, BookOpen } from 'lucide-react';
+import { Search, Plus, MapPin, Users, Check, Clock, BookOpen, ArrowRight, Shield } from 'lucide-react';
 
 interface Group {
   id: string;
@@ -11,6 +11,31 @@ interface Group {
   region: string;
   ao: string;
 }
+
+interface StudyPlan {
+  id: string;
+  title: string;
+  duration: string;
+  description: string;
+  slug: string;
+}
+
+const AVAILABLE_STUDIES: StudyPlan[] = [
+  {
+    id: 'being-him',
+    title: 'Being HIM',
+    duration: '14 Days',
+    description: 'A foundational 14-day study on Christian leadership, vulnerability, and holding each other accountable in the gloom and in life.',
+    slug: 'being-him'
+  },
+  {
+    id: 'godly-man',
+    title: 'Godly Man',
+    duration: '7 Days',
+    description: 'Core biblical commands on standing firm, acting with courage, and leading your family and region with love.',
+    slug: 'godly-man'
+  }
+];
 
 export default function DiscoveryPage() {
   const [tab, setTab] = useState<'groups' | 'studies'>('groups');
@@ -103,6 +128,7 @@ export default function DiscoveryPage() {
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-black tracking-tight">DISCOVERY HUB</h1>
         <Link href="/create-group" className="bg-black text-white p-2 rounded-full hover:bg-gray-800 transition-colors">
@@ -110,6 +136,7 @@ export default function DiscoveryPage() {
         </Link>
       </div>
 
+      {/* Tabs */}
       <div className="grid grid-cols-2 gap-1 bg-gray-200 p-1 rounded-lg text-center text-xs font-bold">
         <button
           onClick={() => setTab('groups')}
@@ -186,20 +213,36 @@ export default function DiscoveryPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm space-y-3">
-            <div className="flex justify-between items-start">
-              <h3 className="text-lg font-black">Being HIM</h3>
-              <span className="bg-black text-white text-xs font-bold px-2 py-0.5 rounded">14 Days</span>
+          {AVAILABLE_STUDIES.map((study) => (
+            <div 
+              key={study.id} 
+              className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-3 hover:border-black transition-colors"
+            >
+              <div className="flex justify-between items-start">
+                <span className="bg-black text-white text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded">
+                  {study.duration}
+                </span>
+                <span className="text-xs font-bold text-gray-400">ESV Edition</span>
+              </div>
+
+              <div>
+                <h3 className="text-base font-black tracking-tight text-gray-900">{study.title}</h3>
+                <p className="text-xs text-gray-600 leading-relaxed mt-1">{study.description}</p>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100 flex justify-between items-center">
+                <span className="text-[10px] font-bold text-gray-400 flex items-center gap-1">
+                  <Shield size={12} /> Accountability Enabled
+                </span>
+                <Link
+                  href={`/study?study=${study.slug}&day=1`}
+                  className="bg-black text-white text-xs font-bold px-3 py-2 rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1.5"
+                >
+                  Start Study <ArrowRight size={14} />
+                </Link>
+              </div>
             </div>
-            <p className="text-xs text-gray-600 leading-normal">
-              A foundational 14-day study on Christian leadership, vulnerability, and holding each other accountable in the gloom and in life.
-            </p>
-            <div className="pt-2 border-t border-gray-100 flex justify-end">
-              <Link href="/study?day=1" className="bg-black text-white text-xs font-bold px-3 py-2 rounded flex items-center gap-1">
-                Read Study <BookOpen size={14} />
-              </Link>
-            </div>
-          </div>
+          ))}
         </div>
       )}
     </main>
