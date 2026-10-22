@@ -43,25 +43,44 @@ export default function ProfilePage() {
 
       setEmail(user.email || '');
 
-      // Fetch Profile Details
-      const { data: profileData } = await supabase
+      // Check localStorage fallbacks from signup
+      const localF3 = localStorage.getItem('f3_name') || localStorage.getItem('pending_f3_name');
+      const localReal = localStorage.getItem('real_name') || localStorage.getItem('pending_real_name');
+      const localRegion = localStorage.getItem('region') || localStorage.getItem('pending_region');
+      const localAo = localStorage.getItem('home_ao') || localStorage.getItem('pending_home_ao');
+
+      // Fetch Profile Details from Supabase
+      let { data: profileData } = await supabase
         .from('profiles')
         .select('f3_name, real_name, region, home_ao')
         .eq('id', user.id)
         .single();
 
+      // If profile is missing or shows default 'Pax' while localStorage has data, sync it immediately
+      if ((!profileData || profileData.f3_name === 'Pax' || !profileData.real_name) && (localF3 || localReal)) {
+        const payload = {
+          id: user.id,
+          email: user.email,
+          f3_name: localF3 || profileData?.f3_name || 'Pax',
+          real_name: localReal || profileData?.real_name || '',
+          region: localRegion || profileData?.region || 'Jacksonville',
+          home_ao: localAo || profileData?.home_ao || 'Prov Squad',
+        };
+        await supabase.from('profiles').upsert([payload], { onConflict: 'id' });
+        profileData = payload;
+      }
+
       if (profileData) {
         setProfile(profileData as any);
-        setF3Name(profileData.f3_name || user.user_metadata?.f3_name || '');
-        setRealName(profileData.real_name || user.user_metadata?.real_name || '');
-        setRegion(profileData.region || user.user_metadata?.region || 'Jacksonville');
-        setHomeAo(profileData.home_ao || user.user_metadata?.home_ao || '');
+        setF3Name(profileData.f3_name || localF3 || user.user_metadata?.f3_name || '');
+        setRealName(profileData.real_name || localReal || user.user_metadata?.real_name || '');
+        setRegion(profileData.region || localRegion || user.user_metadata?.region || 'Jacksonville');
+        setHomeAo(profileData.home_ao || localAo || user.user_metadata?.home_ao || '');
       } else {
-        // Fallback if profile row doesn't exist yet
-        const defaultF3 = user.user_metadata?.f3_name || 'Pax';
-        const defaultReal = user.user_metadata?.real_name || '';
-        const defaultRegion = user.user_metadata?.region || 'Jacksonville';
-        const defaultAo = user.user_metadata?.home_ao || '';
+        const defaultF3 = localF3 || user.user_metadata?.f3_name || 'Pax';
+        const defaultReal = localReal || user.user_metadata?.real_name || '';
+        const defaultRegion = localRegion || user.user_metadata?.region || 'Jacksonville';
+        const defaultAo = localAo || user.user_metadata?.home_ao || '';
 
         setProfile({ f3_name: defaultF3, real_name: defaultReal, region: defaultRegion, home_ao: defaultAo });
         setF3Name(defaultF3);
@@ -104,7 +123,6 @@ export default function ProfilePage() {
       email: user.email || email,
     };
 
-    // Use upsert so it creates the profile row if it was missing
     const { error } = await supabase
       .from('profiles')
       .upsert([profilePayload], { onConflict: 'id' });
@@ -180,7 +198,7 @@ export default function ProfilePage() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[10px] font-black uppercase tracking-wider text-gray-500">F3 Nickname</label>
+            <label className="text-[10px] font-black uppercase tracking-wider text-gray-500">F3 Name</label>
             <input
               type="text"
               value={f3Name}
