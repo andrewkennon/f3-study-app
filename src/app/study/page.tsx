@@ -1,10 +1,21 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
-import { ChevronDown, ChevronUp, CheckCircle2, Circle, ArrowLeft, MessageSquare, Send, Bot, ExternalLink } from 'lucide-react';
+import { 
+  ChevronDown, 
+  ChevronUp, 
+  CheckCircle2, 
+  Circle, 
+  ArrowLeft, 
+  MessageSquare, 
+  Send, 
+  Bot, 
+  ExternalLink,
+  BookOpen
+} from 'lucide-react';
 
 interface Member {
   user_id: string;
@@ -29,9 +40,74 @@ interface Comment {
   reactions?: Record<string, number>;
 }
 
+interface StudyDayData {
+  book: string;
+  chapter: number;
+  verseRef: string;
+  title: string;
+  verses: { num: number; text: string }[];
+  context: string;
+  himConnection: string;
+  wordStudy: {
+    originalWord: string;
+    transliteration: string;
+    meaning: string;
+    breakdown: string;
+  };
+}
+
+const STUDY_CONTENT: Record<string, Record<number, StudyDayData>> = {
+  'being-him': {
+    1: {
+      book: 'Proverbs',
+      chapter: 27,
+      verseRef: 'PROVERBS 27:14-19 (ESV)',
+      title: 'Sharpening in the Gloom',
+      verses: [
+        { num: 14, text: 'Whoever blesses his neighbor with a loud voice, rising early in the morning, will be counted as cursing.' },
+        { num: 15, text: 'A continual dripping on a rainy day and a quarrelsome wife are alike;' },
+        { num: 16, text: 'to restrain her is to restrain the wind or to grasp oil in one’s right hand.' },
+        { num: 17, text: 'Iron sharpens iron, and one man sharpens another.' },
+        { num: 18, text: 'Whoever tends a fig tree will eat its fruit, and he who guards his master will be honored.' },
+        { num: 19, text: 'As in water face reflects face, so the heart of man reflects man.' }
+      ],
+      context: 'Solomon collected these proverbs to teach practical wisdom for daily life in ancient Israel. Verse 17 uses commonplace physical tools—iron blades—to describe how personal relationships work.',
+      himConnection: 'True leadership requires putting yourself in proximity with other men who will hold you accountable, remove dullness, and challenge you to grow.',
+      wordStudy: {
+        originalWord: 'יַחַד',
+        transliteration: 'Yachad',
+        meaning: 'To unite, join together, or sharpen mutually.',
+        breakdown: 'Refers to two edges striking together. Sharpening cannot happen in isolation; it requires intentional friction and contact.'
+      }
+    }
+  },
+  'godly-man': {
+    1: {
+      book: '1 Corinthians',
+      chapter: 16,
+      verseRef: '1 CORINTHIANS 16:13-14 (ESV)',
+      title: 'Be Watchful, Stand Firm',
+      verses: [
+        { num: 13, text: 'Be watchful, stand firm in the faith, act like men, be strong.' },
+        { num: 14, text: 'Let all that you do be done in love.' }
+      ],
+      context: 'Paul is closing his first letter to the church in Corinth, a city full of cultural distractions and division. He issues short, military-style commands to keep the believers grounded.',
+      himConnection: 'Strength without love leads to harshness, while love without strength leads to compromise. A high-impact leader balances vigilant conviction with genuine care for others.',
+      wordStudy: {
+        originalWord: 'ἀνδρίζομαι',
+        transliteration: 'Andrizomai',
+        meaning: 'To act courageously, show mature manhood, or conduct oneself with bravery.',
+        breakdown: 'A call to spiritual maturity and steady resolve in the face of pressure.'
+      }
+    }
+  }
+};
+
 function StudyContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const dayParam = searchParams.get('day');
+  const studyParam = searchParams.get('study') || 'being-him';
   const dayNumber = dayParam ? parseInt(dayParam, 10) : 1;
 
   const [userId, setUserId] = useState<string | null>(null);
@@ -39,10 +115,11 @@ function StudyContent() {
   const [userRegion, setUserRegion] = useState<string>('F3 Jacksonville');
   const [members, setMembers] = useState<Member[]>([]);
   const [isCompleted, setIsCompleted] = useState(false);
+
   const [showHimConnection, setShowHimConnection] = useState(false);
+  const [showContext, setShowContext] = useState(false);
   const [showWordStudy, setShowWordStudy] = useState(false);
 
-  // Discussion State
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
@@ -50,11 +127,9 @@ function StudyContent() {
   const [mentionSearch, setMentionSearch] = useState('');
   const [showMentionBox, setShowMentionBox] = useState(false);
 
-  // Dynamic Scripture Reference (Defaults to Proverbs 27 for Day 1 demo)
-  const book = 'Proverbs';
-  const chapter = 27;
-  const verseReference = 'PROVERBS 27:17 (ESV)';
-  const esvChapterUrl = `https://www.esv.org/${book}+${chapter}/`;
+  const currentStudy = STUDY_CONTENT[studyParam] || STUDY_CONTENT['being-him'];
+  const dayData = currentStudy[dayNumber] || currentStudy[1];
+  const esvChapterUrl = `https://www.esv.org/${dayData.book}+${dayData.chapter}/`;
 
   useEffect(() => {
     async function loadStudyData() {
@@ -62,7 +137,6 @@ function StudyContent() {
       if (!user) return;
       setUserId(user.id);
 
-      // Fetch Profile for region
       const { data: profile } = await supabase
         .from('profiles')
         .select('region')
@@ -70,7 +144,6 @@ function StudyContent() {
         .single();
       if (profile?.region) setUserRegion(profile.region);
 
-      // Retrieve primary group membership
       const { data: membership } = await supabase
         .from('group_members')
         .select('group_id')
@@ -82,7 +155,6 @@ function StudyContent() {
       if (membership) {
         setGroupId(membership.group_id);
 
-        // Check if current day is logged as completed
         const { data: acc } = await supabase
           .from('accountability')
           .select('completed')
@@ -93,7 +165,6 @@ function StudyContent() {
 
         if (acc) setIsCompleted(acc.completed);
 
-        // Fetch Group Members for @ tagging
         const { data: memberData } = await supabase
           .from('group_members')
           .select('user_id, profiles(f3_name, real_name, region)')
@@ -107,7 +178,7 @@ function StudyContent() {
     }
 
     loadStudyData();
-  }, [dayNumber]);
+  }, [dayNumber, studyParam]);
 
   const fetchComments = async (activeGroupId: string) => {
     const { data: commentList } = await supabase
@@ -258,27 +329,35 @@ function StudyContent() {
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      {/* Header Bar */}
-      <div className="flex justify-between items-center">
+      {/* Header Bar with Study Switcher */}
+      <div className="flex justify-between items-center gap-2">
         <Link href={backHref} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
           <ArrowLeft size={18} />
         </Link>
-        <span className="text-xs font-black uppercase tracking-widest text-gray-500">
-          BEING HIM
-        </span>
-        <span className="bg-black text-white text-xs font-bold px-2.5 py-1 rounded-md">
-          Day {dayNumber} of 14
+        
+        {/* Dynamic Study Selector */}
+        <select
+          value={studyParam}
+          onChange={(e) => router.push(`/study?study=${e.target.value}&day=1`)}
+          className="bg-gray-100 text-xs font-black uppercase tracking-wider text-gray-800 py-1.5 px-2.5 rounded-lg border-none focus:ring-black cursor-pointer"
+        >
+          <option value="being-him">BEING HIM (14D)</option>
+          <option value="godly-man">GODLY MAN (7D)</option>
+        </select>
+
+        <span className="bg-black text-white text-xs font-bold px-2.5 py-1 rounded-md shrink-0">
+          Day {dayNumber}
         </span>
       </div>
 
-      {/* 1. Scripture Card with Full ESV Copyright Compliance */}
+      {/* 1. Scripture Card with Full Context Verses */}
       <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
         <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
           <div>
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-              {verseReference}
+              {dayData.verseRef}
             </span>
-            <h2 className="text-lg font-black tracking-tight mt-0.5">{book} {chapter}:17</h2>
+            <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}</h2>
           </div>
           <a
             href={esvChapterUrl}
@@ -290,14 +369,17 @@ function StudyContent() {
           </a>
         </div>
 
-        <div className="text-base font-serif leading-relaxed text-gray-900 space-y-2">
-          <p>
-            <sup className="font-sans text-xs font-bold mr-1 text-gray-400">17</sup>
-            Iron sharpens iron, and one man sharpens another.
-          </p>
+        {/* Render Multiple Verses */}
+        <div className="text-sm font-serif leading-relaxed text-gray-900 space-y-2">
+          {dayData.verses.map((v) => (
+            <p key={v.num}>
+              <sup className="font-sans text-[10px] font-bold mr-1 text-gray-400">{v.num}</sup>
+              {v.text}
+            </p>
+          ))}
         </div>
 
-        {/* Required Crossway Standard ESV Copyright Statement */}
+        {/* Required ESV Copyright Notice */}
         <div className="pt-3 border-t border-gray-100 space-y-2 text-[10px] text-gray-400 leading-normal">
           <p>
             Scripture quotations marked "ESV" are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved. The ESV text may not be quoted in any publication made available to the public by a Creative Commons license. The ESV may not be translated into any other language.
@@ -316,7 +398,7 @@ function StudyContent() {
         </div>
       </div>
 
-      {/* 2. Collapsible HIM Connection */}
+      {/* 2. HIM Connection */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <button
           onClick={() => setShowHimConnection(!showHimConnection)}
@@ -329,7 +411,7 @@ function StudyContent() {
         {showHimConnection && (
           <div className="p-4 pt-0 border-t border-gray-100 space-y-3">
             <p className="text-xs text-gray-700 leading-relaxed">
-              As iron sharpens iron, so one man sharpens another. True leadership requires putting yourself in the gloom alongside other men who will challenge, hold accountable, and sharpen your faith.
+              {dayData.himConnection}
             </p>
             <div className="flex items-center gap-1.5 text-[10px] text-gray-400 italic pt-2 border-t border-gray-100">
               <Bot size={12} className="shrink-0" />
@@ -339,7 +421,33 @@ function StudyContent() {
         )}
       </div>
 
-      {/* 3. Collapsible Deep Word Study */}
+      {/* 3. What's Happening Here? (Context Accordion) */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <button
+          onClick={() => setShowContext(!showContext)}
+          className="w-full p-4 flex justify-between items-center text-left hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <BookOpen size={16} className="text-gray-500" />
+            <span className="font-black text-sm text-gray-900">What's Happening Here?</span>
+          </div>
+          {showContext ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+
+        {showContext && (
+          <div className="p-4 pt-0 border-t border-gray-100 space-y-3">
+            <p className="text-xs text-gray-700 leading-relaxed">
+              {dayData.context}
+            </p>
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 italic pt-2 border-t border-gray-100">
+              <Bot size={12} className="shrink-0" />
+              <span>Devotional content generated by AI. The best reference for the Bible is the Bible.</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 4. Deep Word Study */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <button
           onClick={() => setShowWordStudy(!showWordStudy)}
@@ -353,11 +461,9 @@ function StudyContent() {
           <div className="p-4 pt-0 border-t border-gray-100 space-y-3">
             <div className="text-xs text-gray-700 leading-relaxed space-y-2">
               <p>
-                <strong>Hebrew Word:</strong> <em className="font-serif">Yachad</em> (יַחַד) – To unite, join together, or sharpen mutually.
+                <strong>Original Word:</strong> <em className="font-serif">{dayData.wordStudy.transliteration}</em> ({dayData.wordStudy.originalWord}) – {dayData.wordStudy.meaning}
               </p>
-              <p>
-                The physical metaphor refers to two iron blades striking each other to remove dullness and rust. Spiritual sharpening requires friction, proximity, and honest feedback.
-              </p>
+              <p>{dayData.wordStudy.breakdown}</p>
             </div>
             <div className="flex items-center gap-1.5 text-[10px] text-gray-400 italic pt-2 border-t border-gray-100">
               <Bot size={12} className="shrink-0" />
@@ -367,10 +473,10 @@ function StudyContent() {
         )}
       </div>
 
-      {/* 4. Private Group Discussion Board */}
+      {/* 5. Private Group Discussion Board */}
       <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
         <div className="flex items-center gap-2 border-b border-gray-100 pb-3">
-          <MessageSquare className="text-black" size={16} />
+          <MessageSquare size={16} className="text-black" />
           <h3 className="text-xs font-black uppercase tracking-wider">Group Discussion</h3>
         </div>
 
@@ -434,7 +540,6 @@ function StudyContent() {
                   </div>
                   <p className="text-gray-700 leading-snug">{comment.content}</p>
 
-                  {/* Emoji Tapback Bar */}
                   <div className="flex items-center gap-1 pt-1">
                     {['👍', '🙏', '💪', '🎯'].map((emoji) => {
                       const count = comment.reactions?.[emoji] || 0;
@@ -460,7 +565,6 @@ function StudyContent() {
                     </button>
                   </div>
 
-                  {/* Inline Reply Input */}
                   {replyingToId === comment.id && (
                     <div className="flex gap-2 pt-2 border-t border-gray-200">
                       <input
@@ -480,7 +584,6 @@ function StudyContent() {
                     </div>
                   )}
 
-                  {/* 1-Level Threaded Replies */}
                   {replies.length > 0 && (
                     <div className="space-y-1.5 pt-2 pl-3 border-l-2 border-gray-300">
                       {replies.map((reply) => (
@@ -508,7 +611,7 @@ function StudyContent() {
         </div>
       </div>
 
-      {/* 5. Mark Completed Toggle Button */}
+      {/* 6. Mark Completed Toggle Button */}
       <button
         onClick={toggleCompletion}
         className={`w-full py-4 rounded-xl font-black text-sm tracking-wide transition-all shadow-md flex items-center justify-center gap-2 ${
