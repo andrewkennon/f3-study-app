@@ -9,8 +9,6 @@ import { StudyAccordions } from './StudyAccordions';
 import { StudyDiscussion } from './StudyDiscussion';
 import { STUDY_CONTENT } from '@/lib/studiesData';
 
-
-
 function StudyContent() {
   const searchParams = useSearchParams();
   const dayParam = searchParams.get('day');
@@ -23,6 +21,10 @@ function StudyContent() {
   const [members, setMembers] = useState<any[]>([]);
   const [isCompleted, setIsCompleted] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
+  
+  // ESV Fetching State
+  const [esvText, setEsvText] = useState<string>('Loading scripture...');
+  const [loadingEsv, setLoadingEsv] = useState(true);
 
   const currentStudy = STUDY_CONTENT[studyParam] || STUDY_CONTENT['being-him'];
   const dayData = currentStudy[dayNumber] || currentStudy[1];
@@ -71,6 +73,47 @@ function StudyContent() {
 
     loadStudyData();
   }, [dayNumber, studyParam]);
+
+  // ESV Fetching Effect
+  useEffect(() => {
+    async function fetchScripture() {
+      if (!dayData?.verseRef) return;
+      
+      setLoadingEsv(true);
+      
+      try {
+        const params = new URLSearchParams({
+          q: dayData.verseRef,
+          'include-passage-references': 'false',
+          'include-footnotes': 'false',
+          'include-headings': 'false',
+          'include-short-copyright': 'false',
+          'include-audio-link': 'false'
+        });
+
+        const response = await fetch(`https://api.esv.org/v3/passage/text/?${params.toString()}`, {
+          headers: {
+            'Authorization': `Token ${process.env.NEXT_PUBLIC_ESV_API_KEY}`
+          }
+        });
+
+        const data = await response.json();
+        
+        if (data.passages && data.passages.length > 0) {
+          setEsvText(data.passages[0]);
+        } else {
+          setEsvText('Could not load scripture text.');
+        }
+      } catch (error) {
+        console.error('Error fetching ESV text:', error);
+        setEsvText('Error loading scripture text from ESV API.');
+      } finally {
+        setLoadingEsv(false);
+      }
+    }
+
+    fetchScripture();
+  }, [dayData?.verseRef]);
 
   const fetchComments = async (activeGroupId: string) => {
     const { data: commentList } = await supabase
@@ -146,33 +189,40 @@ function StudyContent() {
       </div>
 
       {/* 1. Scripture Card */}
-<div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-  <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
-    <div>
-      <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-        {dayData.verseRef} (ESV)
-      </span>
-      <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}</h2>
-    </div>
-    <a
-      href={esvChapterUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0"
-    >
-      Full Chapter <ExternalLink size={12} />
-    </a>
-  </div>
-  <p className="text-sm font-serif leading-relaxed text-gray-900">{dayData.summary}</p>
-  
-  {/* Updated ESV Copyright & Attribution Notice */}
-  <div className="pt-2 text-[10px] text-gray-400 leading-normal border-t border-gray-100">
-    Scripture quotations marked “ESV” are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved.{' '}
-    <Link href="/copyright" className="underline font-bold hover:text-black">
-      View full ESV® copyright notice
-    </Link>.
-  </div>
-</div>
+      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+        <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
+          <div>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+              {dayData.verseRef} (ESV)[cite: 1]
+            </span>
+            <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}[cite: 1]</h2>
+          </div>
+          <a
+            href={esvChapterUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0"
+          >
+            Full Chapter <ExternalLink size={12} />[cite: 1]
+          </a>
+        </div>
+        
+        {loadingEsv ? (
+          <p className="text-sm text-gray-400 font-bold animate-pulse">Fetching exact verses...</p>
+        ) : (
+          <p className="text-sm font-serif leading-relaxed text-gray-900 whitespace-pre-wrap">
+            {esvText}
+          </p>
+        )}
+        
+        {/* Updated ESV Copyright & Attribution Notice */}
+        <div className="pt-2 text-[10px] text-gray-400 leading-normal border-t border-gray-100">
+          Scripture quotations marked “ESV” are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved.{' '}[cite: 1]
+          <Link href="/copyright" className="underline font-bold hover:text-black">
+            View full ESV® copyright notice[cite: 1]
+          </Link>.
+        </div>
+      </div>
 
       {/* 2. MARK AS COMPLETED BUTTON */}
       <button
@@ -181,7 +231,7 @@ function StudyContent() {
           isCompleted ? 'bg-green-700 text-white hover:bg-green-800' : 'bg-black text-white hover:bg-gray-800'
         }`}
       >
-        {isCompleted ? <><CheckCircle2 size={20} /> COMPLETED</> : <><Circle size={20} /> MARK COMPLETED</>}
+        {isCompleted ? <><CheckCircle2 size={20} /> COMPLETED[cite: 1]</> : <><Circle size={20} /> MARK COMPLETED</>}
       </button>
 
       {/* 3. Devotional Accordions */}
