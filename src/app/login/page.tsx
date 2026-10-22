@@ -59,11 +59,22 @@ export default function LoginPage() {
     if (!email.trim()) return;
     setLoading(true);
 
-    if (isSignUp) {
+    // Save profile details to localStorage robustly under multiple keys to guarantee persistence
+    if (f3Name.trim()) {
       localStorage.setItem('pending_f3_name', f3Name.trim());
+      localStorage.setItem('f3_name', f3Name.trim());
+    }
+    if (realName.trim()) {
       localStorage.setItem('pending_real_name', realName.trim());
+      localStorage.setItem('real_name', realName.trim());
+    }
+    if (region.trim()) {
       localStorage.setItem('pending_region', region.trim());
+      localStorage.setItem('region', region.trim());
+    }
+    if (homeAo.trim()) {
       localStorage.setItem('pending_home_ao', homeAo.trim());
+      localStorage.setItem('home_ao', homeAo.trim());
     }
 
     const { error } = await supabase.auth.signInWithOtp({
