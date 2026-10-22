@@ -146,21 +146,33 @@ function StudyContent() {
       </div>
 
       {/* 1. Scripture Card */}
-      <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
-          <div>
-            <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">{dayData.verseRef} (ESV)</span>
-            <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}</h2>
-          </div>
-          <a href={esvChapterUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0">
-            Full Chapter <ExternalLink size={12} />
-          </a>
-        </div>
-        <p className="text-sm font-serif leading-relaxed text-gray-900">{dayData.summary}</p>
-        <div className="pt-2 text-[10px] text-gray-400 italic">
-          Read the full passage in context on <a href={esvChapterUrl} target="_blank" rel="noopener noreferrer" className="underline font-bold">esv.org</a>.
-        </div>
-      </div>
+<div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
+  <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
+    <div>
+      <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+        {dayData.verseRef} (ESV)
+      </span>
+      <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}</h2>
+    </div>
+    <a
+      href={esvChapterUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0"
+    >
+      Full Chapter <ExternalLink size={12} />
+    </a>
+  </div>
+  <p className="text-sm font-serif leading-relaxed text-gray-900">{dayData.summary}</p>
+  
+  {/* Updated ESV Copyright & Attribution Notice */}
+  <div className="pt-2 text-[10px] text-gray-400 leading-normal border-t border-gray-100">
+    Scripture quotations marked “ESV” are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved.{' '}
+    <Link href="/copyright" className="underline font-bold hover:text-black">
+      View full ESV® copyright notice
+    </Link>.
+  </div>
+</div>
 
       {/* 2. MARK AS COMPLETED BUTTON */}
       <button

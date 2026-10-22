@@ -245,7 +245,8 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
     return <p className="text-center text-xs text-gray-500 py-12">Group not found.</p>;
   }
 
-  const study = group.master_studies || { title: 'Being HIM', total_days: 14 };
+  const study = group.master_studies || { id: 'being-him', title: 'Being HIM', total_days: 14 };
+  const studySlug = study.id || 'being-him';
   const startDate = group.start_date ? new Date(group.start_date) : new Date();
   const today = new Date();
   
@@ -320,7 +321,7 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
           </div>
 
           <Link
-            href={`/study?day=${userNextDay}`}
+            href={`/study?study=${studySlug}&day=${userNextDay}`}
             className="bg-white text-black font-black text-xs px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-1.5"
           >
             Read Day {userNextDay} <BookOpen size={14} />
@@ -328,7 +329,7 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
         </div>
       </div>
 
-      {/* 1. Personal Date Boxes */}
+      {/* 1. Personal Date Boxes linked directly to study content */}
       <div className="space-y-3">
         <h3 className="text-xs font-black uppercase text-gray-500 tracking-wider">Your Reading Schedule</h3>
         <div className="grid grid-cols-7 gap-1.5">
@@ -345,7 +346,7 @@ export default function GroupDetailsPage({ params }: { params: Promise<{ id: str
             return (
               <Link
                 key={d.dayNumber}
-                href={`/study?day=${d.dayNumber}`}
+                href={`/study?study=${studySlug}&day=${d.dayNumber}`}
                 className={`p-2 rounded-lg border text-center flex items-center justify-center transition-all shadow-sm ${bgClass}`}
                 title={`Day ${d.dayNumber} - ${d.dateString}`}
               >
