@@ -22,7 +22,6 @@ function StudyContent() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [comments, setComments] = useState<any[]>([]);
   
-  // ESV Fetching State
   const [esvText, setEsvText] = useState<string>('Loading scripture...');
   const [loadingEsv, setLoadingEsv] = useState(true);
 
@@ -74,7 +73,6 @@ function StudyContent() {
     loadStudyData();
   }, [dayNumber, studyParam]);
 
-  // ESV Fetching Effect
   useEffect(() => {
     async function fetchScripture() {
       if (!dayData?.verseRef) return;
@@ -82,16 +80,18 @@ function StudyContent() {
       setLoadingEsv(true);
       
       try {
+        // Switched to HTML endpoint to get proper superscript verse tags without brackets
         const params = new URLSearchParams({
           q: dayData.verseRef,
           'include-passage-references': 'false',
           'include-footnotes': 'false',
           'include-headings': 'false',
           'include-short-copyright': 'false',
-          'include-audio-link': 'false'
+          'include-audio-link': 'false',
+          'include-css-link': 'false'
         });
 
-        const response = await fetch(`https://api.esv.org/v3/passage/text/?${params.toString()}`, {
+        const response = await fetch(`https://api.esv.org/v3/passage/html/?${params.toString()}`, {
           headers: {
             'Authorization': `Token ${process.env.NEXT_PUBLIC_ESV_API_KEY}`
           }
@@ -177,7 +177,6 @@ function StudyContent() {
 
   return (
     <main className="max-w-md mx-auto p-4 pt-6 pb-24 space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-center">
         <Link href={backHref} className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 transition-colors">
           <ArrowLeft size={18} />
@@ -188,14 +187,13 @@ function StudyContent() {
         <span className="bg-black text-white text-xs font-bold px-2.5 py-1 rounded-md">Day {dayNumber}</span>
       </div>
 
-      {/* 1. Scripture Card */}
       <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-4">
         <div className="border-b border-gray-100 pb-2 flex justify-between items-start">
           <div>
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
-              {dayData.verseRef} (ESV)[cite: 1]
+              {dayData.verseRef} (ESV)
             </span>
-            <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}[cite: 1]</h2>
+            <h2 className="text-lg font-black tracking-tight mt-0.5">{dayData.title}</h2>
           </div>
           <a
             href={esvChapterUrl}
@@ -203,45 +201,42 @@ function StudyContent() {
             rel="noopener noreferrer"
             className="text-xs font-bold text-gray-600 hover:text-black flex items-center gap-1 bg-gray-100 hover:bg-gray-200 px-2.5 py-1 rounded-md transition-colors shrink-0"
           >
-            Full Chapter <ExternalLink size={12} />[cite: 1]
+            Full Chapter <ExternalLink size={12} />
           </a>
         </div>
         
         {loadingEsv ? (
-          <p className="text-sm text-gray-400 font-bold animate-pulse">Fetching exact verses...</p>
+          <p className="text-base text-gray-400 font-bold animate-pulse">Fetching exact verses...</p>
         ) : (
-          <p className="text-sm font-serif leading-relaxed text-gray-900 whitespace-pre-wrap">
-            {esvText}
-          </p>
+          <div 
+            className="text-base md:text-lg font-serif leading-relaxed text-gray-900 [&_p]:mb-4 [&_sup]:text-[10px] [&_sup]:font-sans [&_sup]:text-gray-500 [&_sup]:mr-0.5"
+            dangerouslySetInnerHTML={{ __html: esvText }}
+          />
         )}
         
-        {/* Updated ESV Copyright & Attribution Notice */}
         <div className="pt-2 text-[10px] text-gray-400 leading-normal border-t border-gray-100">
-          Scripture quotations marked “ESV” are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved.{' '}[cite: 1]
+          Scripture quotations marked “ESV” are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved.{' '}
           <Link href="/copyright" className="underline font-bold hover:text-black">
-            View full ESV® copyright notice[cite: 1]
+            View full ESV® copyright notice
           </Link>.
         </div>
       </div>
 
-      {/* 2. MARK AS COMPLETED BUTTON */}
       <button
         onClick={toggleCompletion}
         className={`w-full py-4 rounded-xl font-black text-sm tracking-wide transition-all shadow-md flex items-center justify-center gap-2 ${
           isCompleted ? 'bg-green-700 text-white hover:bg-green-800' : 'bg-black text-white hover:bg-gray-800'
         }`}
       >
-        {isCompleted ? <><CheckCircle2 size={20} /> COMPLETED[cite: 1]</> : <><Circle size={20} /> MARK COMPLETED</>}
+        {isCompleted ? <><CheckCircle2 size={20} /> COMPLETED</> : <><Circle size={20} /> MARK COMPLETED</>}
       </button>
 
-      {/* 3. Devotional Accordions */}
       <StudyAccordions
         himConnection={dayData.himConnection}
         context={dayData.context}
         wordStudy={dayData.wordStudy}
       />
 
-      {/* 4. Group Discussion Board */}
       <StudyDiscussion
         dayNumber={dayNumber}
         userId={userId}
